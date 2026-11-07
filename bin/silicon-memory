@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# silicon-memory — 统一记忆 CLI（memory/knowledge 文件层；v1.1 增 serve MCP 面）
+set -euo pipefail
+# daemon 环境无 HOME/nvm PATH（沿 dotfiles agentctl 自举段）——自举，版本升级自动跟随
+h="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6 || true)}"
+if [ -z "$h" ]; then echo "silicon-memory: cannot resolve home (no HOME and uid not in passwd)" >&2; exit 2; fi
+export HOME="$h"
+command -v node >/dev/null 2>&1 || {
+  _nb="$(ls -d "$h"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1 || true)"
+  if [ -n "$_nb" ]; then export PATH="$_nb${PATH:+:$PATH}"; fi
+}
+cd "$(dirname "$(readlink -f "$0")")/.."
+AE="skills/agent-experience/bin/ae.mjs"
+
+usage() {
+  cat << 'HELP'
+silicon-memory — 统一记忆 CLI
+
+Memory:      silicon-memory memory {capture|id|query|supersede|promote|validate|index|cards|score|verify|lint <store>}
+Knowledge:   silicon-memory knowledge {query|ingest|lint}
+
+治理类（practice/policy/evolution/groom/mount/constitution）属部署方私有 CLI，不在本仓。
+HELP
+}
+
+cmd="${1:-}"
+if [ -z "$cmd" ]; then usage; exit 0; fi
+if [ "$#" -gt 0 ]; then shift; fi
+case "$cmd" in
+  memory)
+    sub="${1:-help}"
+    if [ "$#" -gt 0 ]; then shift; fi
+    case "$sub" in
+      capture)  exec node "$AE" capture "$@" ;;
+      id)       exec node "$AE" id "$@" ;;
+      query)    exec node "$AE" dedup "$@" ;;
+      supersede) exec node "$AE" supersede "$@" ;;
+      promote)  exec node "$AE" promote "$@" ;;
+      validate) exec node "$AE" validate "$@" ;;
+      index)    exec node "$AE" index "$@" ;;
+      cards)    exec node "$AE" cards "$@" ;;
+      score)    exec node "$AE" score "$@" ;;
+      verify)   exec node "$AE" verify-anchors "$@" ;;
+      lint)     exec bash lint/lint.sh "$@" ;;
+      *) echo "usage: silicon-memory memory {capture|id|query|supersede|promote|validate|index|cards|score|verify|lint <store>}" >&2; exit 2 ;;
+    esac ;;
+  knowledge)
+    sub="${1:-help}"
+    if [ "$#" -gt 0 ]; then shift; fi
+    case "$sub" in
+      query) exec node "$AE" knowledge query "$@" ;;
+      lint)  exec node "$AE" knowledge lint "$@" ;;
+      ingest)
+        # project-compound ingest 是 LLM 过程（无脚本入口）——CLI 定位 skill 入口并输出 runbook
+        PC="skills/project-compound"
+        if [ ! -f "$PC/SKILL.md" ]; then
+          echo "knowledge ingest: project-compound skill 缺失（$PC/SKILL.md）" >&2
+          exit 1
+        fi
+        cat << EOF
+ingest 无脚本入口——按 project-compound skill 过程执行（agent 操作）：
+  skill:   $PC/SKILL.md
+  全语义:  $PC/references/operations.md（Step 0-6）
+  快路径:  应用回写 feedback.md → Classify（No material 走 log-only）→ Target module
+           → Write record → Cross-reference → Update index → Append log.md
+EOF
+        ;;
+      *) echo "usage: silicon-memory knowledge {query|ingest|lint}" >&2; exit 2 ;;
+    esac ;;
+  *) usage >&2; exit 2 ;;
+esac
