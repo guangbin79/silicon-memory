@@ -26,6 +26,11 @@ ck "ext-memory"    '[ -x "$HOME/.config/agentctl/ext/memory.sh" ]'
 ck "ext-desc"      'grep -q "^# desc:" "$HOME/.config/agentctl/ext/knowledge.sh"'
 ck "rc-line"       '[ "$(grep -c "MEMORY_DATA_DIR=" "$HOME/.bashrc")" = "1" ]'
 
+# I5 回归：手加键在重跑后保留（config 合并语义）
+printf 'SM_NOISE_PREFIXES=[agora]\n' >> "$HOME/.config/silicon-memory/config"
+run >/dev/null 2>&1
+ck "config-merge" 'grep -q "SM_NOISE_PREFIXES" "$HOME/.config/silicon-memory/config"'
+
 # 幂等：快照受管面，二跑零 diff
 before=$(cat "$HOME/.config/silicon-memory/config" "$HOME/.bashrc" 2>/dev/null; ls -l "$HOME/.local/bin" "$HOME/.config/opencode/skills" "$HOME/.config/agentctl/ext" 2>/dev/null)
 run >/dev/null 2>&1

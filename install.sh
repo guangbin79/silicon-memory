@@ -27,11 +27,11 @@ mkdir -p "$EXP" "$DATA"
 # 1. config（agentctl/ae.mjs 与插件共读；写前 diff 保幂等）
 CFGDIR="$HOME/.config/silicon-memory"
 mkdir -p "$CFGDIR"
-CFG_NEW="SM_EXP_STORE=$EXP
-SM_DATA_DIR=$DATA"
-if [ ! -f "$CFGDIR/config" ] || [ "$(cat "$CFGDIR/config")" != "$CFG_NEW" ]; then
-  printf '%s\n' "$CFG_NEW" > "$CFGDIR/config"
-fi
+# 合并语义：刷新两枚规范键，保留手加键（如 SM_NOISE_PREFIXES）——重跑不清户
+[ -f "$CFGDIR/config" ] || : > "$CFGDIR/config"
+grep -vE '^SM_(EXP_STORE|DATA_DIR)=' "$CFGDIR/config" > "$CFGDIR/config.new" || true
+printf '%s\n%s\n' "SM_EXP_STORE=$EXP" "SM_DATA_DIR=$DATA" >> "$CFGDIR/config.new"
+mv "$CFGDIR/config.new" "$CFGDIR/config"
 
 # 2. CLI symlink
 mkdir -p "$HOME/.local/bin"
