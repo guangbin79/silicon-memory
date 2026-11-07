@@ -1,0 +1,28 @@
+{
+  "_comment": "合并进 ~/.claude/settings.json（全局）或项目 .claude/settings.json。路径改为本仓库 integrations/claude-code 的绝对路径。两个脚本需要可执行权限。",
+
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/semantic-memory/integrations/claude-code/on-prompt.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/semantic-memory/integrations/claude-code/pre-compact.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

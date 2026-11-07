@@ -1,0 +1,22 @@
+{
+  "name": "opencode-plugin-semantic-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin opencode v2 control-plane plugin for the semantic-memory service (zero runtime deps)",
+  "main": "./memory.ts",
+  "exports": {
+    ".": "./memory.ts",
+    "./server": "./memory.ts"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "^2.0.28",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext --moduleResolution bundler memory.ts",
+    "build": "node ./node_modules/typescript/bin/tsc memory.ts --module esnext --moduleResolution bundler --target es2022 --skipLibCheck --outDir dist",
+    "test": "npm run build && bash test-integration.sh"
+  }
+}
