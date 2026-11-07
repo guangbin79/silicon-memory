@@ -45,7 +45,7 @@ Now just talk to your session as usual:
 | *"...remember this"* | typed memory stored (preference / decision / fact), searchable the moment the call returns |
 | new session, same repo | relevant decisions, preferences, and past fixes injected before your first message (sub-final position, prefix-cache friendly) |
 | compaction fires mid-session | pre-compaction flush: the discarded context is searchable, not gone |
-| *"how did we solve X before?"* | native `memory_recall` tool / `silicon-memory memory query` → fused hits, cross-project extras flagged |
+| *"how did we solve X before?"* | native `memory_recall` tool / `silicon-memory knowledge query` → fused hits, cross-project extras flagged |
 
 Update path: `git pull` — the CLI and skills are symlinks into the repo, they follow automatically. Re-run `./install.sh` only if the service venv is missing (the installer skips an existing venv; if `server/pyproject.toml` dependencies changed, delete `server/venv` and re-run).
 

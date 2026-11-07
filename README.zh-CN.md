@@ -45,7 +45,7 @@ git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
 | *"……记住这个"* | 存入带类型的记忆（preference / decision / fact），调用返回那一刻即可检索 |
 | 新会话，同一个仓 | 相关决策、偏好、历史修法在第一条消息前注入（次末位置，对前缀缓存友好） |
 | 会话中途触发压缩 | 压缩前冲刷：被丢弃的上下文可检索，而不是消失 |
-| *"我们之前怎么解决 X 的？"* | 原生 `memory_recall` 工具 / `silicon-memory memory query` → 融合命中，跨项目补充带标记 |
+| *"我们之前怎么解决 X 的？"* | 原生 `memory_recall` 工具 / `silicon-memory knowledge query` → 融合命中，跨项目补充带标记 |
 
 更新方式：`git pull`——CLI 与 skills 是指向仓的软链，自动跟随。仅当服务 venv 缺失时才需重跑 `./install.sh`（安装器跳过已存在的 venv；若 `server/pyproject.toml` 依赖变更，删 `server/venv` 后重跑）。
 
