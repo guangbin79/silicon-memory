@@ -48,6 +48,22 @@ else
   echo "install: uv 不在 PATH——语义记忆 server 未装（装 uv 后重跑本脚本）" >&2
 fi
 
+# 4b. embed 栈：llama-cpp CUDA 轮子是本地资产（非 PyPI 发布物）；缺 CUDA 库则从旧 venv 抄；都没有→BM25 降级
+if [ -x "$R/server/venv/bin/python" ]; then
+  WS=$(ls "$HOME"/.local/backups/llama_cpp_python-0.3.35-py3-none-*.whl 2>/dev/null | head -1)
+  SP=$(ls -d "$R"/server/venv/lib/python3.*/site-packages 2>/dev/null | head -1)
+  OLDLL="$HOME/semantic-memory/venv/lib/python3.12/site-packages/llama_cpp/lib"
+  if [ -n "$WS" ] && [ -n "$SP" ]; then
+    uv pip install --python "$R/server/venv/bin/python" "$WS" >/dev/null 2>&1 || true
+    LL="$SP/llama_cpp/lib"
+    for so in libcudart.so.12 libcublas.so.12 libcublasLt.so.12; do
+      [ -e "$LL/$so" ] || cp "$OLDLL/$so" "$LL/" 2>/dev/null || true
+    done
+  else
+    echo "install: 本地 llama-cpp CUDA 轮子缺失（~/.local/backups/）——向量通道降级 BM25（补齐见 README）" >&2
+  fi
+fi
+
 # 4. skills 软链农场（opencode 约定；其他 harness 见 README 手动接线）
 SKDIR="$HOME/.config/opencode/skills"
 mkdir -p "$SKDIR"
