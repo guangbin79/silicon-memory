@@ -21,7 +21,6 @@ git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
 - `~/.local/bin/silicon-memory`——统一 CLI
 - `~/.local/bin/semantic-memory`——MCP server（uv venv）
 - `~/.config/opencode/skills/{agent-experience,project-compound,unified-memory}`——skill 软链
-- `~/.config/agentctl/ext/{memory,knowledge}.sh`——agentctl 扩展落件（见 [docs/ext-contract.md](docs/ext-contract.md)）
 - shell rc 补 `MEMORY_DATA_DIR` export（已有则零写入）
 
 ## CLI
@@ -43,10 +42,9 @@ silicon-memory knowledge query|ingest|lint
 - 模型文件（GGUF）放 `<data>/models/`，缺失时 server 以纯 BM25 降级
 - 前缀表插件侧：`~/.config/silicon-memory/config` 加 `SM_NOISE_PREFIXES=[agora]`（逗号分隔）
 
-## agentctl 扩展契约
+## 向 agent 声明（独立 CLI 模式）
 
-`~/.config/agentctl/ext/<族名>.sh`——文件名＝命令族名，内容＝一行 `exec <cli> <族> "$@"`，可选 `# desc:` 头。写文件即注册，删文件即卸载。详见 [docs/ext-contract.md](docs/ext-contract.md)。
-
+CLI 独立存在、不经壳转发：agent 侧指令面（skills／AGENTS.md）直接声明 `silicon-memory memory …`／`silicon-memory knowledge …`。装好即在 PATH，声明即接入。
 ## License
 
 见 [LICENSE](LICENSE)。

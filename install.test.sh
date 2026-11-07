@@ -22,8 +22,6 @@ ck "venv-vector"   '"$R/server/venv/bin/python" -c "import numpy" 2>/dev/null'
 for s in agent-experience project-compound unified-memory; do
   ck "skill-$s"    '[ "$(readlink -f "$HOME/.config/opencode/skills/'$s'")" = "$R/skills/'$s'" ]'
 done
-ck "ext-memory"    '[ -x "$HOME/.config/agentctl/ext/memory.sh" ]'
-ck "ext-desc"      'grep -q "^# desc:" "$HOME/.config/agentctl/ext/knowledge.sh"'
 ck "rc-line"       '[ "$(grep -c "MEMORY_DATA_DIR=" "$HOME/.bashrc")" = "1" ]'
 
 # I5 回归：手加键在重跑后保留（config 合并语义）
@@ -32,9 +30,9 @@ run >/dev/null 2>&1
 ck "config-merge" 'grep -q "SM_NOISE_PREFIXES" "$HOME/.config/silicon-memory/config"'
 
 # 幂等：快照受管面，二跑零 diff
-before=$(cat "$HOME/.config/silicon-memory/config" "$HOME/.bashrc" 2>/dev/null; ls -l "$HOME/.local/bin" "$HOME/.config/opencode/skills" "$HOME/.config/agentctl/ext" 2>/dev/null)
+before=$(cat "$HOME/.config/silicon-memory/config" "$HOME/.bashrc" 2>/dev/null; ls -l "$HOME/.local/bin" "$HOME/.config/opencode/skills" 2>/dev/null)
 run >/dev/null 2>&1
-after=$(cat "$HOME/.config/silicon-memory/config" "$HOME/.bashrc" 2>/dev/null; ls -l "$HOME/.local/bin" "$HOME/.config/opencode/skills" "$HOME/.config/agentctl/ext" 2>/dev/null)
+after=$(cat "$HOME/.config/silicon-memory/config" "$HOME/.bashrc" 2>/dev/null; ls -l "$HOME/.local/bin" "$HOME/.config/opencode/skills" 2>/dev/null)
 ck "idempotent" '[ "$before" = "$after" ]'
 
 # 模型缺失提示（沙箱 data 无 models）

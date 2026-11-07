@@ -2,7 +2,7 @@
 # silicon-memory 安装器：两问接线（数据不动），产物幂等可重跑。
 # 用法: ./install.sh [--exp-store DIR] [--data-dir DIR]   # 缺参交互询问
 # 产物: ~/.config/silicon-memory/config、~/.local/bin/{silicon-memory,semantic-memory}、
-#       ~/.config/opencode/skills/{3 skills} 软链、~/.config/agentctl/ext/{memory,knowledge}.sh、
+#       ~/.config/opencode/skills/{3 skills} 软链、
 #       shell rc 缺 MEMORY_DATA_DIR export 时补一行
 set -euo pipefail
 R="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -50,7 +50,7 @@ fi
 
 # 4b. embed 栈：llama-cpp CUDA 轮子是本地资产（非 PyPI 发布物）；缺 CUDA 库则从旧 venv 抄；都没有→BM25 降级
 if [ -x "$R/server/venv/bin/python" ]; then
-  WS=$(ls "$HOME"/.local/backups/llama_cpp_python-0.3.35-py3-none-*.whl 2>/dev/null | head -1)
+  WS=$(ls "$HOME"/.local/backups/llama_cpp_python-0.3.35-py3-none-*.whl 2>/dev/null | head -1 || true)
   SP=$(ls -d "$R"/server/venv/lib/python3.*/site-packages 2>/dev/null | head -1)
   OLDLL="$HOME/semantic-memory/venv/lib/python3.12/site-packages/llama_cpp/lib"
   if [ -n "$WS" ] && [ -n "$SP" ]; then
@@ -71,18 +71,7 @@ for s in agent-experience project-compound unified-memory; do
   ln -sfn "$R/skills/$s" "$SKDIR/$s"
 done
 
-# 5. agentctl ext 落件（文件即注册；卸载＝删文件，见 docs/ext-contract.md）
-EXTDIR="$HOME/.config/agentctl/ext"
-mkdir -p "$EXTDIR"
-EXT_MEM='# desc: 经验库 memory 族（capture/query/lint/...）——silicon-memory
-exec silicon-memory memory "$@"'
-EXT_KNW='# desc: 知识库 knowledge 族（query/ingest/lint）——silicon-memory
-exec silicon-memory knowledge "$@"'
-[ -f "$EXTDIR/memory.sh" ]    || printf '%s\n' "$EXT_MEM" > "$EXTDIR/memory.sh"
-[ -f "$EXTDIR/knowledge.sh" ] || printf '%s\n' "$EXT_KNW" > "$EXTDIR/knowledge.sh"
-chmod +x "$EXTDIR/memory.sh" "$EXTDIR/knowledge.sh"
-
-# 6. shell rc 补 MEMORY_DATA_DIR export（server/plugin 经 env 读数据目录；已有则零写入）
+# 5. shell rc 补 MEMORY_DATA_DIR export（server/plugin 经 env 读数据目录；已有则零写入）
 case "$(basename "${SHELL:-bash}")" in
   zsh)  RC="$HOME/.zshenv" ;;
   bash) RC="$HOME/.bashrc" ;;
