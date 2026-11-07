@@ -47,7 +47,7 @@ git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
 | 会话中途触发压缩 | 压缩前冲刷：被丢弃的上下文可检索，而不是消失 |
 | *"我们之前怎么解决 X 的？"* | 原生 `memory_recall` 工具 / `silicon-memory memory query` → 融合命中，跨项目补充带标记 |
 
-更新方式：`git pull && ./install.sh`（载荷是拷贝与软链——拉完重跑安装器是更新的一部分）。
+更新方式：`git pull`——CLI 与 skills 是指向仓的软链，自动跟随。仅当服务 venv 缺失时才需重跑 `./install.sh`（安装器跳过已存在的 venv；若 `server/pyproject.toml` 依赖变更，删 `server/venv` 后重跑）。
 
 ## 三层记忆
 
@@ -90,7 +90,7 @@ silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 P
 
 **面向 agent 的 CLI（独立模式）。** CLI 不是别的壳的转发——agent 侧指令（skills / AGENTS.md）直接声明 `silicon-memory memory …` 与 `silicon-memory knowledge …`。部署方治理面（practice / policy / evolution / groom）有意不在本仓。
 
-**opencode 接线。** 两个面：拷贝零运行时依赖插件（`cp server/integrations/opencode/memory.ts ~/.config/opencode/plugins/`）获得钩子驱动的召回 / 注入 / 自动捕获，`MEMORY_PLUGIN_AUTOSTART=1` 时自动拉起服务；并在 `opencode.json` 的 `mcp` 段注册 `semantic-memory serve` 获得原生 `memory_store` / `memory_recall` 工具（示例：[server/README.md](server/README.md)）。
+**opencode 接线。** 一个面一个文件：`cp server/integrations/opencode/memory.ts ~/.config/opencode/plugins/`——插件独自交付钩子驱动的召回 / 注入 / 自动捕获（`MEMORY_PLUGIN_AUTOSTART=1` 时自动拉起服务）**与**原生 `memory_store` / `memory_recall` 工具，无需任何 MCP 注册。其他 harness：[server/integrations/](server/integrations/) 的钩子适配器。
 
 ## 核心能力
 
@@ -155,7 +155,7 @@ rm -f ~/.local/bin/silicon-memory ~/.local/bin/semantic-memory
 rm -rf ~/.config/silicon-memory
 rm -f ~/.config/opencode/skills/{agent-experience,project-compound,unified-memory}
 rm ~/.config/opencode/plugins/memory.ts   # 装了插件的话
-# 删 shell rc 里 MEMORY_DATA_DIR 那行；删 opencode.json 的 mcp 条目
+# 删 shell rc 里 MEMORY_DATA_DIR 那行
 ```
 你的数据目录（`SM_EXP_STORE`、`SM_DATA_DIR`、各项目的 `docs/agents/knowledge/`）有意不动——它们是你的，不是工具的。
 
@@ -165,7 +165,7 @@ rm ~/.config/opencode/plugins/memory.ts   # 装了插件的话
 
 **我的记忆去了哪？** 哪也不去。服务只绑 localhost，模型跑在你机器上，无云、无遥测。可选的云整合通道（默认关）只向你自己配置的端点发送预过滤的近重复集合，且只收回元数据操作计划——云端生成的内容永不入库。
 
-**平台？** Linux（已验证）。macOS：代码路径在（无 setsid 时安装器回退 nohup），但未在真机上验证。Windows：走 WSL。
+**平台？** Linux（已验证）。macOS：未验证——CLI 与纯 BM25 服务可移植，CUDA 向量轮子是本地 Linux 资产。Windows：走 WSL。
 
 ## License
 

@@ -47,7 +47,7 @@ Now just talk to your session as usual:
 | compaction fires mid-session | pre-compaction flush: the discarded context is searchable, not gone |
 | *"how did we solve X before?"* | native `memory_recall` tool / `silicon-memory memory query` → fused hits, cross-project extras flagged |
 
-Update path: `git pull && ./install.sh` (payloads are copies and symlinks — re-running the installer is part of updating).
+Update path: `git pull` — the CLI and skills are symlinks into the repo, they follow automatically. Re-run `./install.sh` only if the service venv is missing (the installer skips an existing venv; if `server/pyproject.toml` dependencies changed, delete `server/venv` and re-run).
 
 ## The Three Layers
 
@@ -90,7 +90,7 @@ silicon-memory CLI — the agent-facing face (declare it, it's on PATH)
 
 **Agent-facing CLI (standalone model).** The CLI is not a shell through something else — agent-side instructions (skills / AGENTS.md) declare `silicon-memory memory …` and `silicon-memory knowledge …` directly. Deployment-side governance faces (practice / policy / evolution / groom) are intentionally not in this repo.
 
-**opencode wiring.** Two faces: copy the zero-runtime-dependency plugin (`cp server/integrations/opencode/memory.ts ~/.config/opencode/plugins/`) for hook-driven recall / injection / auto-capture with `MEMORY_PLUGIN_AUTOSTART=1` service spawn; and register `semantic-memory serve` in the `mcp` section of `opencode.json` for the native `memory_store` / `memory_recall` tools (example: [server/README.md](server/README.md)).
+**opencode wiring.** One face, one file: `cp server/integrations/opencode/memory.ts ~/.config/opencode/plugins/` — the plugin alone delivers hook-driven recall / injection / auto-capture (with `MEMORY_PLUGIN_AUTOSTART=1` service spawn) **and** the native `memory_store` / `memory_recall` tools. No MCP registration needed. Other harnesses: hook adapters in [server/integrations/](server/integrations/).
 
 ## Highlights
 
@@ -155,7 +155,7 @@ rm -f ~/.local/bin/silicon-memory ~/.local/bin/semantic-memory
 rm -rf ~/.config/silicon-memory
 rm -f ~/.config/opencode/skills/{agent-experience,project-compound,unified-memory}
 rm ~/.config/opencode/plugins/memory.ts   # if you installed the plugin
-# remove the MEMORY_DATA_DIR line from your shell rc; drop the mcp entry from opencode.json
+# remove the MEMORY_DATA_DIR line from your shell rc
 ```
 Your data directories (`SM_EXP_STORE`, `SM_DATA_DIR`, and every project's `docs/agents/knowledge/`) are intentionally left alone — they are yours, not the tool's.
 
@@ -165,7 +165,7 @@ Your data directories (`SM_EXP_STORE`, `SM_DATA_DIR`, and every project's `docs/
 
 **Where does my memory go?** Nowhere. The service binds to localhost, models run on your machine, there is no cloud and no telemetry. The optional cloud-consolidation channel (off by default) sends a pre-filtered near-duplicate set to an endpoint you configure and accepts back only a metadata plan — no cloud-generated content is ever stored.
 
-**Platforms?** Linux (verified). macOS: code paths exist (nohup fallback where setsid is absent) but are not verified. Windows: WSL.
+**Platforms?** Linux (verified). macOS: unverified — the CLI and the BM25-only service are portable, the CUDA vector wheel is a local Linux asset. Windows: WSL.
 
 ## License
 
