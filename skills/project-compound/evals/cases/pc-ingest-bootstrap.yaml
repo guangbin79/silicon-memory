@@ -1,0 +1,31 @@
+id: pc-ingest-bootstrap
+title: 首次 ingest 应 Bootstrap 种子文件并落盘决策记录
+description: 空仓库完成含选型决策的任务后，应创建 index/log/modules 并按模板写入模块记录
+input:
+  prompt: |
+    任务已完成，请按 project-compound 的 Ingest 流程做关闭归档。
+    任务背景：为 src/search.py 实现全文检索，在 SQLite LIKE 与 FTS5 之间选型，
+    最终选择 FTS5（满足中文分词与查询性能），放弃 LIKE（全表扫描无法接受）。
+    来源 commit：a1b2c3d。本仓库 docs/agents/knowledge/ 尚不存在。
+
+context:
+  files:
+    "src/search.py": |
+      import sqlite3
+      # FTS5 full-text search implementation
+    "README.md": |
+      # demo-repo
+      search module playground
+
+expect:
+  files_exist:
+    - docs/agents/knowledge/knowledge-index.md
+    - docs/agents/knowledge/log.md
+  file_contains:
+    - path: docs/agents/knowledge/knowledge-index.md
+      content: "模块列表"
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/pc-check-decision-entry.sh
+  timeout_seconds: 30

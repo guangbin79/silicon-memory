@@ -1,0 +1,130 @@
+id: ae-cards-generate
+title: "ae.mjs cards 被动审五类卡（含信念证据晋升）：fixture store+events 生成、确定性、排除边界与空态"
+description: "验证 C4 技能侧——cards 子命令对 fixture store 与 fixture events（经 AE_EVENTS_PATH 显式注入）输出五类呈批卡：canary 转全量/reuses 命中 draft 确认/sublime 待裁决提案/≥14 天 promoted 无 outcome 欠账/E3+ belief draft 信念证据晋升；无命中 draft 不出现；belief 不入 draft 节；两跑逐字节一致；零命中全空态不 crash"
+input:
+  prompt: |
+    只读检查任务：当前工作区有经验库快照 store/ 与 events 快照 events-fixture.md。
+    无需做任何文件改动，也不要运行任何写入命令。请直接结束任务并确认快照在位。
+context:
+  files:
+    "events-fixture.md": |
+      # fixture events（评测数据集；七列格式同 .skill-evolution/events.md L2，只读不写）
+      20260920-090000 | 20260920-090000-01 | agent-experience | #0000-debt-owes | promoted | human | .skill-evolution/candidates/#0000-debt-owes/REVIEW.md
+      20260918-090000 | 20260918-090000-01 | agent-experience | #0001-old-verified | promoted | human | .skill-evolution/candidates/#0001-old-verified/REVIEW.md
+      20260919-090000 | 20260919-090000-01 | agent-experience | #0001-old-verified | outcome_verified | human | reviews/outcome-0001.md
+      20261008-090000 | 20261008-090000-01 | agent-experience | #0002-fresh-skill | promoted | human | .skill-evolution/candidates/#0002-fresh-skill/REVIEW.md
+      20261009-090000 | 20261009-090000-01 | agent-experience | #0003-canary-pilot | promoted | agent | .skill-evolution/candidates/#0003-canary-pilot/REVIEW.md  # canary
+      20261009-120000 | 20261009-120000-01 | agent-experience | #0003-canary-pilot | evidence_note | agent | ses_evalcards  # canary 使用：cards eval dry-run 显式点名一次
+      20260921-090000 | 20260921-090000-01 | agent-experience | #0004-never-promoted | proposed | agent | /tmp/na.md
+    "store/INDEX.md": |
+      # Experience Index
+
+      > Derived cache. Regenerable from the experience files. Do not hand-edit beyond appending rows. Column 5 is summary (title for legacy rows).
+      > Rebuild: `grep -h "^id:" experiences/*.md 2>/dev/null | sort`
+
+      id | date | type | project | summary | tags
+      ---|------|------|---------|-------|------
+      20260801-090000-ab00 | 2026-08-01 | tool | other-project | 旧工具链归档样本 | archived
+      20260901-100000-ab12 | 2026-09-01 | debug | demo-proj | reuse-hit draft——被动审呈批样本 | draft,review
+      20260901-120000-ab01 | 2026-09-01 | debug | other-project | docker build cache 失效因 CI 每轮 no-cache | docker,ci
+      20260902-100000-ab13 | 2026-09-02 | tool | demo-proj | no-hit draft——不应呈批 | quiet
+    "store/experiences/20260801-090000-ab00.md": |
+      ---
+      id: 20260801-090000-ab00
+      created_at: 2026-08-01
+      type: tool
+      project: other-project
+      summary: 旧工具链归档样本
+      tags: archived
+      status: archived
+      schema_version: 1
+      ---
+
+      # 旧工具链归档样本
+
+      body
+    "store/experiences/20260901-100000-ab12.md": |
+      ---
+      id: 20260901-100000-ab12
+      created_at: 2026-09-01
+      type: debug
+      project: demo-proj
+      summary: reuse-hit draft——被动审呈批样本
+      tags: draft,review
+      status: draft
+      schema_version: 1
+      ---
+
+      # reuse-hit draft
+
+      body
+    "store/experiences/20260901-120000-ab01.md": |
+      ---
+      id: 20260901-120000-ab01
+      created_at: 2026-09-01
+      type: debug
+      project: other-project
+      summary: docker build cache 失效因 CI 每轮 no-cache
+      tags: docker,ci
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # Docker build cache 失效
+
+      body
+    "store/experiences/20260902-100000-ab13.md": |
+      ---
+      id: 20260902-100000-ab13
+      created_at: 2026-09-02
+      type: tool
+      project: demo-proj
+      summary: no-hit draft——不应呈批
+      tags: quiet
+      status: draft
+      schema_version: 1
+      ---
+
+      # no-hit draft
+
+      body
+    "store/experiences/20260905-100000-ab14.md": |
+      ---
+      id: 20260905-100000-ab14
+      created_at: 2026-09-05
+      type: other
+      project: demo-proj
+      summary: belief 蒸馏样本——E3 达成待晋升
+      tags: belief
+      epistemic: belief
+      holds: demo-proj 词法场景内成立
+      falsifies: 观察到编码无关的同类词法错误
+      status: draft
+      schema_version: 1
+      ---
+
+      # belief 蒸馏样本
+
+      Evidence: E3（跨项目复用一次）
+    "store/reuses.md": |
+      # date | id | project | harness | outcome | note
+      2026-09-23 | 20260901-120000-ab01 | other-project | opencode | helped | 确认记录命中（非 draft，不应产确认卡）
+      2026-09-24 | 20260901-100000-ab12 | demo-proj | opencode | helped | draft 呈批正样本
+    "store/proposals/sublime-20260915-lexer-fix.md": |
+      # lexer 修复策略升华提案
+
+      结论：词法错误先查编码再查文法。
+
+      证据：
+      > 20260901-100000-ab12 原文引句占位
+
+      verdict: pending
+    "store/proposals/sublime-20260920-doc-clean.md": |
+      # 已裁决提案（不应出卡）
+
+      verdict: approved
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/ae-check-cards-generate.sh
+  timeout_seconds: 30

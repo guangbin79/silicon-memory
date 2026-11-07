@@ -1,0 +1,47 @@
+id: pc-ingest-feedback
+title: 应用了条目的收尾应回写 feedback.md（外部反馈日志）
+description: 任务实际应用了带 Id 的条目 → Ingest Step 0 向 feedback.md 追加一行；条目本体不被改动（反馈外部化）
+input:
+  prompt: |
+    任务完成收尾：推荐接口的响应缓存任务实际应用了知识库 cache 模块「内存 LRU 优先于 Redis」
+    策略（按其 Approach 实施，效果符合预期），同时本次没有产生新的非显然知识。
+    请按 project-compound 的 Ingest 流程收尾。
+
+context:
+  files:
+    "docs/agents/knowledge/knowledge-index.md": |
+      # Knowledge Index
+
+      ## 模块列表
+
+      | Module | Description | Summary Path | Detail Directory |
+      |--------|-------------|--------------|------------------|
+      | cache | HTTP 响应缓存 | modules/cache.md | modules |
+    "docs/agents/knowledge/modules/cache.md": |
+      # Cache
+
+      > Last updated: 2026-09-01
+
+      ## Overview
+      - HTTP 响应缓存
+      - Key files: ./src/cache/
+
+      ## Strategies
+
+      ### 内存 LRU 优先于 Redis（2026-09-01）
+      - **Id:** cache/lru-over-redis
+      - **Source:** session 2026-09-01-cache-strategy
+      - **Problem:** 热点接口缓存选型
+      - **Approach:** 进程内 LRU，容量 1k，TTL 60s
+      - **When to reuse:** 单实例部署、低一致性要求
+    "docs/agents/knowledge/log.md": |
+      # Knowledge Log
+
+      ## [2026-09-01] ingest | cache
+      - 记录缓存选型策略
+      - Types: Strategy
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/pc-check-feedback.sh
+  timeout_seconds: 30

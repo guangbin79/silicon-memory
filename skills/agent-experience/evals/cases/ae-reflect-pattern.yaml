@@ -1,0 +1,138 @@
+id: ae-reflect-pattern
+title: Reflect 应产出跨记录模式报告且只读不动库
+description: 6 条 debug 经验中 3 条同根因跨 3 项目复发；Reflect 应多轮检索聚合并产出 reviews/reflect-*.md，experiences/ 文件数不变
+max_turns: 25
+input:
+  prompt: |
+    请按 agent-experience 的 Reflect 操作，对 debug 类型的经验做一次跨记录模式挖掘，
+    并按规范产出报告文件（reviews/reflect-<今日日期>.md；Reflect 对 store 只读，写报告无需请示）。
+
+context:
+  files:
+    "store/INDEX.md": |
+      # Experience Index
+
+      20260901-100000-aa01 | 2026-09-01 | debug | search-svc | FTS5 查询双引号未转义致 fts5 syntax error | fts5,sqlite,escaping
+      20260905-100000-bb02 | 2026-09-05 | debug | admin-portal | FTS5 MATCH 短语查询报 syntax error 因引号未包裹 | fts5,sqlite,quoting
+      20260910-100000-cc03 | 2026-09-10 | debug | mobile-api | 全文检索 FTS5 特殊字符触发 fts5 syntax error | fts5,sqlite,special-chars
+      20260912-100000-dd04 | 2026-09-12 | debug | demo-proj | cmake 链接失败因 CMAKE_TOOLCHAIN_MISMATCH 工具链与编译器不一致 | cmake,toolchain
+      20260915-100000-ee05 | 2026-09-15 | debug | web-cli | npm install 因 react 18 peerdeps 冲突报 ERESOLVE | npm,peerdeps,erresolve
+    "store/experiences/20260901-100000-aa01.md": |
+      ---
+      id: 20260901-100000-aa01
+      created_at: 2026-09-01
+      type: debug
+      project: search-svc
+      summary: FTS5 查询双引号未转义致 fts5 syntax error
+      tags: fts5,sqlite,escaping
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # FTS5 双引号崩溃
+
+      ## Symptom
+      - fts5 syntax error near ""
+
+      ## Root Cause
+      - 用户输入含双引号，直接拼进 MATCH 未转义
+
+      ## Fix
+      - 短语统一用双引号包裹并转义内部引号
+
+      Evidence: E2（修复合并进主干）
+    "store/experiences/20260905-100000-bb02.md": |
+      ---
+      id: 20260905-100000-bb02
+      created_at: 2026-09-05
+      type: debug
+      project: admin-portal
+      summary: FTS5 MATCH 短语查询报 syntax error 因引号未包裹
+      tags: fts5,sqlite,quoting
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # MATCH 短语查询报错
+
+      ## Symptom
+      - fts5 syntax error
+
+      ## Root Cause
+      - 多词短语未按 FTS5 语法用引号包裹
+
+      ## Fix
+      - phrase query 统一 quote 处理
+
+      Evidence: E2（修复合并进主干）
+    "store/experiences/20260910-100000-cc03.md": |
+      ---
+      id: 20260910-100000-cc03
+      created_at: 2026-09-10
+      type: debug
+      project: mobile-api
+      summary: 全文检索 FTS5 特殊字符触发 fts5 syntax error
+      tags: fts5,sqlite,special-chars
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # FTS5 特殊字符崩溃
+
+      ## Symptom
+      - fts5 syntax error（含 - 与 * 的输入）
+
+      ## Root Cause
+      - 特殊字符未转义直接进 MATCH
+
+      ## Fix
+      - 输入侧统一 sanitize 后再查询
+
+      Evidence: E1（CI 复验通过）
+    "store/experiences/20260912-100000-dd04.md": |
+      ---
+      id: 20260912-100000-dd04
+      created_at: 2026-09-12
+      type: debug
+      project: demo-proj
+      summary: cmake 链接失败因 CMAKE_TOOLCHAIN_MISMATCH 工具链与编译器不一致
+      tags: cmake,toolchain
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # cmake 链接失败
+
+      ## Symptom
+      - undefined reference
+
+      ## Root Cause
+      - 工具链文件与编译器不匹配（CMAKE_TOOLCHAIN_MISMATCH）
+
+      Evidence: E1（CI 复验通过）
+    "store/experiences/20260915-100000-ee05.md": |
+      ---
+      id: 20260915-100000-ee05
+      created_at: 2026-09-15
+      type: debug
+      project: web-cli
+      summary: npm install 因 react 18 peerdeps 冲突报 ERESOLVE
+      tags: npm,peerdeps,erresolve
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # npm ERESOLVE
+
+      ## Symptom
+      - ERESOLVE unable to resolve dependency tree
+
+      ## Root Cause
+      - react 18 与旧版 UI 库 peerdeps 冲突
+
+      Evidence: E1（CI 复验通过）
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/ae-check-reflect.sh
+  timeout_seconds: 30

@@ -1,0 +1,59 @@
+id: pc-lint
+title: Lint 应自动修复 Tier 1 索引缺口并落日志
+description: modules/cache.md 存在但未入索引，lint 应补行且追加 lint 日志条目
+input:
+  prompt: |
+    请按 project-compound 的 Lint 流程对知识库做一次健康检查。
+
+context:
+  files:
+    "docs/agents/knowledge/knowledge-index.md": |
+      # Knowledge Index
+
+      ## 模块列表
+
+      | Module | Description | Summary Path | Detail Directory |
+      |--------|-------------|--------------|------------------|
+      | auth | 登录态与会话管理 | modules/auth.md | modules |
+    "docs/agents/knowledge/modules/auth.md": |
+      # Auth
+
+      > Last updated: 2026-09-01
+
+      ## Overview
+      - 会话与登录态管理
+      - Key files: ./src/auth/
+
+      ## Decisions
+
+      ### session 优先于 JWT（2026-09-01）
+      - **Source:** commit f00dcafe
+      - **Chosen:** session-based 登录态
+      - **Reason:** 复用已有中间件 sess-mw
+    "docs/agents/knowledge/modules/cache.md": |
+      # Cache
+
+      > Last updated: 2026-09-05
+
+      ## Overview
+      - HTTP 响应缓存
+      - Key files: ./src/cache/
+    "docs/agents/knowledge/log.md": |
+      # Knowledge Log
+
+      ## [2026-09-01] ingest | auth
+      - 记录 auth 选型决策
+      - Types: Decision
+
+expect:
+  file_contains:
+    - path: docs/agents/knowledge/knowledge-index.md
+      content: "cache"
+    - path: docs/agents/knowledge/log.md
+      content: "lint"
+
+judge:
+  type: rule_based
+  success:
+    - files_exist:
+        - docs/agents/knowledge/modules/cache.md

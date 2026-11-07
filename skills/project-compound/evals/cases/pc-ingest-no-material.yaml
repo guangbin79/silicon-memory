@@ -1,0 +1,26 @@
+id: pc-ingest-no-material
+title: 琐碎变更应走 No material 路径只记日志
+description: 错别字修复无学习点，应仅追加 log 条目且不创建任何模块文件
+input:
+  prompt: |
+    任务已完成，请按 project-compound 的 Ingest 流程做关闭归档。
+    任务内容：修复 README.md 中的错别字（"recieve" 改为 "receive"），
+    单行改动，无选型、无 bug、无结构性变化。
+
+context:
+  files:
+    "README.md": |
+      # demo-repo
+      receive updates
+
+expect:
+  files_exist:
+    - docs/agents/knowledge/log.md
+  file_contains:
+    - path: docs/agents/knowledge/log.md
+      content: "No material"
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/pc-check-no-material.sh
+  timeout_seconds: 30

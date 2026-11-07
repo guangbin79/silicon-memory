@@ -1,0 +1,42 @@
+id: ae-capture-decision
+title: Capture Decision 应立即落盘 confirmed 决策并更新 INDEX
+description: 验证 decision 模板、status confirmed、[inferred] 标记、ID 格式自检与 INDEX 追加
+input:
+  prompt: |
+    刚才的任务里，我向你提问「全文检索用 FTS5 还是 LIKE」并选择了 FTS5。
+    请按 agent-experience 的 Capture Decision 流程立刻落盘这条决策记录。
+    项目：demo-project；上下文：./src/search.py；触发场景：SQLite 全文检索选型。
+
+context:
+  files:
+    "store/INDEX.md": |
+      # Experience Index
+
+      | id | created_at | type | project | summary | tags |
+      |----|------------|------|---------|---------|------|
+
+      20260901-120000-ab01 | 2026-09-01 | debug | other-project | docker build cache 失效因 CI 每轮 no-cache | docker,ci
+    "store/experiences/20260901-120000-ab01.md": |
+      ---
+      id: 20260901-120000-ab01
+      created_at: 2026-09-01
+      type: debug
+      project: other-project
+      summary: docker build cache 失效因 CI 每轮 no-cache
+      tags: docker,ci
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # Docker build cache 失效
+
+      ## Symptom
+      - CI 构建永远全量
+
+      ## Root Cause
+      - CI 每轮显式 no-cache
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/ae-check-decision-capture.sh
+  timeout_seconds: 30

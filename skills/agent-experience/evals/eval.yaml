@@ -1,0 +1,49 @@
+schema_version: v1alpha1
+
+# 环境隔离由引擎 wrapper 实现：假 HOME 下 .dotfiles/.agent-experiences -> workspace/store，
+# 真实经验库 <store>/ 不受影响
+environment:
+  type: none
+
+skills:
+  - source: local_path
+    path: .
+
+engine:
+  name: opencode
+  custom:
+    transport: local
+    response_format: session_result
+    timeout_seconds: 420
+    local:
+      command: ~/.config/opencode/skills/.eval-engines/opencode-agent.sh
+      args:
+        - --input
+        - ${input_file}
+        - --output
+        - ${output_file}
+        - --workspace
+        - ${workspace}
+      cwd: ${workspace}
+      input_file: ${input_file}
+      output_file: ${output_file}
+
+cases:
+  files:
+    - evals/cases/ae-capture-decision.yaml
+    - evals/cases/ae-capture-dedup.yaml
+    - evals/cases/ae-query-zero.yaml
+    - evals/cases/ae-query-reuse.yaml
+    - evals/cases/ae-capture-corroborate.yaml
+    - evals/cases/ae-reflect-pattern.yaml
+    - evals/cases/ae-capture-observational.yaml
+    - evals/cases/ae-capture-interpretive.yaml
+    - evals/cases/ae-cards-generate.yaml
+  defaults:
+    timeout_seconds: 420
+    max_turns: 15
+    collect_artifacts:
+      - "store/**"
+
+report:
+  formats: [json, html]

@@ -1,0 +1,55 @@
+id: ae-query-zero
+title: 零命中查询应明示无匹配且不编造
+description: 检索 kubernetes 相关经验而库内无匹配，应标注无匹配经验并正常继续，不泄漏库内无关专有内容
+input:
+  prompt: |
+    新任务：排查 Kubernetes Ingress 502 问题。
+    开始前请按 agent-experience 的 Query 流程检索相关经验，然后简述排查思路。
+
+context:
+  files:
+    "store/INDEX.md": |
+      # Experience Index
+
+      | id | created_at | type | project | summary | tags |
+      |----|------------|------|---------|---------|------|
+
+      20260903-100000-ef03 | 2026-09-03 | debug | svc-a | DOCKER_CACHE_PITFALL_X9 | docker
+      20260904-110000-04aa | 2026-09-04 | debug | svc-b | RUST_BORROW_NOTE_X7 | rust
+    "store/experiences/20260903-100000-ef03.md": |
+      ---
+      id: 20260903-100000-ef03
+      created_at: 2026-09-03
+      type: debug
+      project: svc-a
+      summary: DOCKER_CACHE_PITFALL_X9
+      tags: docker
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # docker 缓存坑
+    "store/experiences/20260904-110000-04aa.md": |
+      ---
+      id: 20260904-110000-04aa
+      created_at: 2026-09-04
+      type: debug
+      project: svc-b
+      summary: RUST_BORROW_NOTE_X7
+      tags: rust
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # rust 借用问题
+
+expect:
+  must_not_contain:
+    - "DOCKER_CACHE_PITFALL_X9"
+    - "RUST_BORROW_NOTE_X7"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        any: ["无匹配经验", "无匹配", "没有匹配", "未找到", "无相关经验", "零命中", "无命中"]

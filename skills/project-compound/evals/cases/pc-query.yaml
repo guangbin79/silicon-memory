@@ -1,0 +1,52 @@
+id: pc-query
+title: Query 应读取模块页并综合出库内专有细节
+description: 断言输出包含只存在于模块页中的专有标识 sess-mw，证明真正读取了 wiki 而非泛泛作答
+input:
+  prompt: |
+    我要开始一个涉及登录态的任务。按 project-compound 的 Query 流程先查询：
+    本项目 auth 为什么用 session 而不是 JWT？
+
+context:
+  files:
+    "docs/agents/knowledge/knowledge-index.md": |
+      # Knowledge Index
+
+      ## 模块列表
+
+      | Module | Description | Summary Path | Detail Directory |
+      |--------|-------------|--------------|------------------|
+      | auth | 登录态与会话管理 | modules/auth.md | modules |
+    "docs/agents/knowledge/modules/auth.md": |
+      # Auth
+
+      > Last updated: 2026-09-01
+
+      ## Overview
+      - 会话与登录态管理
+      - Key files: ./src/auth/
+      - See also: [[infra]]
+
+      ## Decisions
+
+      ### session 优先于 JWT（2026-09-01）
+      - **Source:** commit f00dcafe
+      - **Chosen:** session-based 登录态
+      - **Alternatives:** JWT
+      - **Reason:** 复用已有中间件 sess-mw，撤销只需删服务端记录
+      - **Tradeoff:** 多一次会话存储查询
+    "docs/agents/knowledge/log.md": |
+      # Knowledge Log
+
+      ## [2026-09-01] ingest | auth
+      - 记录 auth 选型决策
+      - Types: Decision
+
+expect:
+  must_contain:
+    - "sess-mw"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all: ["sess-mw"]

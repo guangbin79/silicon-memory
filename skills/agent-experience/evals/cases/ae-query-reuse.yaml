@@ -1,0 +1,45 @@
+id: ae-query-reuse
+title: 命中经验实际帮到任务后应回写复用日志
+description: 检索命中且经验直接解答当前任务，收尾时必须向 reuses.md 追加 helped 行，含被复用经验 ID 与 harness 列，且不改写原记录
+input:
+  prompt: |
+    新任务：排查 Flask 服务返回 502 的问题。
+    开始前请按 agent-experience 的 Query 流程检索相关经验并用于排查；
+    收尾时请完整执行该 skill 对「命中后收尾」的要求，然后简述你做了什么。
+
+context:
+  files:
+    "store/INDEX.md": |
+      # Experience Index
+
+      | id | created_at | type | project | summary | tags |
+      |----|------------|------|---------|---------|------|
+
+      20260901-100000-ab12 | 2026-09-01 | debug | svc-web | FLASK_502_GUNICORN_TIMEOUT_X5 | flask,502,gunicorn
+    "store/experiences/20260901-100000-ab12.md": |
+      ---
+      id: 20260901-100000-ab12
+      created_at: 2026-09-01
+      type: debug
+      project: svc-web
+      summary: FLASK_502_GUNICORN_TIMEOUT_X5
+      tags: flask,502,gunicorn
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # Flask 502 排查
+
+      ## Symptom
+      - nginx 后面的 Flask 服务批量返回 502
+
+      ## Root Cause
+      - gunicorn worker timeout 默认 30s，长请求被杀，网关报 502（GUNICORN_TIMEOUT_X5）
+
+      ## Fix
+      - 调大 gunicorn --timeout 并重启
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/ae-check-reuse-writeback.sh
+  timeout_seconds: 30

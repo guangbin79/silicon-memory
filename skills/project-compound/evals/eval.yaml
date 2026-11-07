@@ -1,0 +1,44 @@
+schema_version: v1alpha1
+
+# 纯文本+文件操作 skill，无需沙箱；引擎走 opencode custom adapter（见 .eval-engines/）
+environment:
+  type: none
+
+skills:
+  - source: local_path
+    path: .
+
+engine:
+  name: opencode
+  custom:
+    transport: local
+    response_format: session_result
+    timeout_seconds: 420
+    local:
+      command: ~/.config/opencode/skills/.eval-engines/opencode-agent.sh
+      args:
+        - --input
+        - ${input_file}
+        - --output
+        - ${output_file}
+        - --workspace
+        - ${workspace}
+      cwd: ${workspace}
+      input_file: ${input_file}
+      output_file: ${output_file}
+
+cases:
+  files:
+    - evals/cases/pc-ingest-bootstrap.yaml
+    - evals/cases/pc-ingest-no-material.yaml
+    - evals/cases/pc-query.yaml
+    - evals/cases/pc-lint.yaml
+    - evals/cases/pc-ingest-feedback.yaml
+  defaults:
+    timeout_seconds: 420
+    max_turns: 15
+    collect_artifacts:
+      - "docs/agents/knowledge/**"
+
+report:
+  formats: [json, html]

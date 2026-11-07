@@ -1,0 +1,47 @@
+id: ae-capture-observational
+title: "观察类经验（机器可验事实）捕获即 confirmed 并带 epistemic 键"
+description: "验证 D3 扩展——事实可由提交物/命令输出直接复验的经验，frontmatter 含 epistemic: observational 且 status: confirmed，summary 含可复验具体标识符，body 带 Evidence 定级行"
+input:
+  prompt: |
+    任务完成，请按 agent-experience 的 Capture 流程记录本次经验：
+    demo-proj 的 CI 上 cargo build 报错 error: linker x86_64-linux-gnu-gcc not found（逐字报错），
+    根因是仓库缺 x86_64-unknown-linux-gnu 目标的 linker 配置；在 .cargo/config.toml 写入
+    [target.x86_64-unknown-linux-gnu] 段指定 linker 后，本地重跑
+    cargo build --target x86_64-unknown-linux-gnu 复验通过。
+    以上事实（报错原文、配置文件改动、复验命令输出）均可由提交物与命令输出直接复验。项目：demo-proj。
+
+context:
+  files:
+    "store/INDEX.md": |
+      # Experience Index
+
+      > Derived cache. Regenerable from the experience files. Do not hand-edit beyond appending rows. Column 5 is summary (title for legacy rows).
+      > Rebuild: `grep -h "^id:" experiences/*.md 2>/dev/null | sort`
+
+      id | date | type | project | summary | tags
+      ---|------|------|---------|-------|------
+      20260901-120000-ab01 | 2026-09-01 | debug | other-project | docker build cache 失效因 CI 每轮 no-cache | docker,ci
+    "store/experiences/20260901-120000-ab01.md": |
+      ---
+      id: 20260901-120000-ab01
+      created_at: 2026-09-01
+      type: debug
+      project: other-project
+      summary: docker build cache 失效因 CI 每轮 no-cache
+      tags: docker,ci
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # Docker build cache 失效
+
+      ## Symptom
+      - CI 构建永远全量
+
+      ## Root Cause
+      - CI 每轮显式 no-cache
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/ae-check-epistemic-observational.sh
+  timeout_seconds: 30

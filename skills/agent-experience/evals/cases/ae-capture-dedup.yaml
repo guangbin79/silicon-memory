@@ -1,0 +1,42 @@
+id: ae-capture-dedup
+title: 重复经验应去重而非新建文件
+description: 同根因同标签的新经验，grep-before-write 命中后应更新或跳过，不得创建第二个文件
+input:
+  prompt: |
+    任务完成，请按 agent-experience 的 Capture 流程记录经验：
+    cmake 构建失败报 undefined reference，排查确认根因是 CMAKE_TOOLCHAIN_MISMATCH——
+    工具链文件与编译器不一致。项目：demo-proj。
+
+context:
+  files:
+    "store/INDEX.md": |
+      # Experience Index
+
+      | id | created_at | type | project | summary | tags |
+      |----|------------|------|---------|---------|------|
+
+      20260902-090000-cd02 | 2026-09-02 | debug | demo-proj | cmake 链接失败因 CMAKE_TOOLCHAIN_MISMATCH 工具链与编译器不一致 | cmake,toolchain
+    "store/experiences/20260902-090000-cd02.md": |
+      ---
+      id: 20260902-090000-cd02
+      created_at: 2026-09-02
+      type: debug
+      project: demo-proj
+      summary: cmake 链接失败因 CMAKE_TOOLCHAIN_MISMATCH 工具链与编译器不一致
+      tags: cmake,toolchain
+      status: confirmed
+      schema_version: 1
+      ---
+
+      # cmake 交叉链接失败
+
+      ## Symptom
+      - undefined reference
+
+      ## Root Cause
+      - 工具链文件与编译器不匹配（CMAKE_TOOLCHAIN_MISMATCH）
+
+judge:
+  type: script
+  script_path: evals/fixtures/scripts/ae-check-dedup.sh
+  timeout_seconds: 30
