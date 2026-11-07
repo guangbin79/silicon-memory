@@ -5,7 +5,7 @@ description: |
   中文描述：跨项目经验记忆系统，支持 capture（捕获）、query（查询）、supersede（退役标记）/promote（升华标记）操作，agent 半自动记录任务经验并跨项目复用。
 ---
 > ⚠️ Superseded by `unified-memory`（sidecar Phase 3，2026-10-11）：memory＋knowledge 已有统一入口；本 skill 语义与数据面不变，references 仍是唯一真源。
-> 统一入口：`.agent/skills/unified-memory/SKILL.md` ｜ CLI：`silicon-memory memory …`＋`silicon-memory knowledge {query|ingest|lint}`
+> 统一入口：`skills/unified-memory/SKILL.md` ｜ CLI：`silicon-memory memory …`＋`silicon-memory knowledge {query|ingest|lint}`
 
 
 # Agent Experience

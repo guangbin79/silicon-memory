@@ -4,7 +4,7 @@ description: |
   Use when the user says 知识积累/知识沉淀/记录知识/知识更新/知识查询 (knowledge accumulation/recording/update/query), or when starting a task on an unfamiliar module, after fixing bugs, after making design decisions, when investigating issues across modules, or when project knowledge needs recording or querying from ./docs/agents/knowledge/.
 ---
 > ⚠️ Superseded by `unified-memory`（sidecar Phase 3，2026-10-11）：memory＋knowledge 已有统一入口；本 skill 语义与数据面不变，references 仍是唯一真源。
-> 统一入口：`.agent/skills/unified-memory/SKILL.md` ｜ CLI：`silicon-memory knowledge {query|ingest|lint}`（机械面）＋本 skill Ingest/Lint 过程（语义面）
+> 统一入口：`skills/unified-memory/SKILL.md` ｜ CLI：`silicon-memory knowledge {query|ingest|lint}`（机械面）＋本 skill Ingest/Lint 过程（语义面）
 
 
 # Project Compound
