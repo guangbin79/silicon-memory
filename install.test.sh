@@ -18,6 +18,7 @@ ck "config-exp"    'grep -q "SM_EXP_STORE=$F/exp" "$HOME/.config/silicon-memory/
 ck "config-data"   'grep -q "SM_DATA_DIR=$F/data" "$HOME/.config/silicon-memory/config"'
 ck "bin-cli"       '[ -x "$HOME/.local/bin/silicon-memory" ] && [ "$(readlink -f "$HOME/.local/bin/silicon-memory")" = "$R/bin/silicon-memory" ]'
 ck "bin-server"    '[ -x "$HOME/.local/bin/semantic-memory" ]'
+ck "venv-vector"   '"$R/server/venv/bin/python" -c "import numpy" 2>/dev/null'
 for s in agent-experience project-compound unified-memory; do
   ck "skill-$s"    '[ "$(readlink -f "$HOME/.config/opencode/skills/'$s'")" = "$R/skills/'$s'" ]'
 done

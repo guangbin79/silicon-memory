@@ -40,7 +40,7 @@ ln -sfn "$R/bin/silicon-memory" "$HOME/.local/bin/silicon-memory"
 # 3. server venv（uv；零第三方依赖故轻快）＋ symlink
 if command -v uv >/dev/null 2>&1; then
   if [ ! -x "$R/server/venv/bin/semantic-memory" ]; then
-    (cd "$R/server" && uv venv venv && uv pip install --python venv/bin/python -e .)
+    (cd "$R/server" && rm -rf venv && uv venv venv && uv pip install --python venv/bin/python -e ".[vector,dev]")
   fi
   [ -x "$R/server/venv/bin/semantic-memory" ] && \
     ln -sfn "$R/server/venv/bin/semantic-memory" "$HOME/.local/bin/semantic-memory"
