@@ -76,7 +76,7 @@ touch "$RC"
 grep -q 'MEMORY_DATA_DIR=' "$RC" || printf '\nexport MEMORY_DATA_DIR="%s"\n' "$DATA" >> "$RC"
 
 # 7. 模型缺失提示（不自动拉大文件）
-if [ -z "$(ls "$DATA/models" 2>/dev/null)"]; then
+if  [ -z "$(ls "$DATA/models" 2>/dev/null)" ]; then
   echo "install: 语义记忆模型缺失——下载 embedding/distiller GGUF 至 $DATA/models/（清单见 README），server 将以纯 BM25 降级运行"
 fi
 
