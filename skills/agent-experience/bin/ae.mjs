@@ -9,7 +9,19 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_STORE = path.join(os.homedir(), '.dotfiles', '.agent-experiences');
+// store 解析链：--store 旗标（main 内解析，最高优先） > AE_EXP_STORE env >
+// ~/.config/silicon-memory/config 的 SM_EXP_STORE > legacy ~/.dotfiles 路径（本机/评测 fakehome 兼容） > ~/.agent-experiences
+function resolveDefaultStore() {
+  if (process.env.AE_EXP_STORE) return process.env.AE_EXP_STORE;
+  try {
+    const cfg = fs.readFileSync(path.join(os.homedir(), '.config', 'silicon-memory', 'config'), 'utf8');
+    const m = cfg.split('\n').find((l) => /^\s*SM_EXP_STORE=/.test(l));
+    if (m) return m.replace(/^\s*SM_EXP_STORE=/, '').trim();
+  } catch {} // config 缺席属常态，顺链而下
+  const legacy = path.join(os.homedir(), '.dotfiles', '.agent-experiences');
+  if (fs.existsSync(legacy)) return legacy;
+  return path.join(os.homedir(), '.agent-experiences');
+}
 const REQUIRED_KEYS = ['id', 'created_at', 'type', 'project', 'summary', 'tags', 'status', 'schema_version'];
 const TYPE_ENUM = ['debug', 'architecture', 'integration', 'tool', 'decision', 'other'];
 const EPISTEMIC_ENUM = ['observational', 'interpretive', 'belief']; // 可选键 epistemic 的枚举（belief=结构化信念，holds/falsifies 必填；缺省=未分型）
@@ -1101,18 +1113,19 @@ function usage() {
     '  knowledge query "<词>"   跨层检索：experiences（store）＋docs/agents/knowledge（modules/*.md＋knowledge-index.md），输出 {experiences,knowledge,knowledge_root}',
     '  knowledge lint           知识库机械检查（Tier 1 索引双向一致＋bootstrap＋Tier 2 断链；root＝AE_KNOWLEDGE_PATH > 自 cwd 向上 docs/agents/knowledge）',
     '  selfcheck                临时夹具 store 自检（含 legacy 无 summary 行）',
-    `  默认 store: ${DEFAULT_STORE}（--store 覆盖；评测一律显式传 --store）`,
+    `  默认 store: ${resolveDefaultStore()}（--store 覆盖；评测一律显式传 --store）`,
     '',
   ].join('\n');
 }
 
 function main(argv) {
   const args = [...argv];
-  let store = DEFAULT_STORE;
+  let store;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--store') { store = args[i + 1]; args.splice(i, 2); i--; }
     else if (args[i]?.startsWith('--store=')) { store = args[i].slice(8); args.splice(i, 1); i--; }
   }
+  if (store === undefined) store = resolveDefaultStore();
   const [cmd, ...rest] = args;
   switch (cmd) {
     case 'id': return cmdId();
