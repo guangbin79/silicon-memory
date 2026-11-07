@@ -45,6 +45,13 @@ bash "$R/lint/lint.sh" "$F/store" >/dev/null 2>&1; w1=$?
 ck lint-rc "$w2" "$w1"
 # 4. knowledge ingest runbook
 "$BIN" knowledge ingest 2>&1 | grep -q 'project-compound' && pass=$((pass+1)) || { fail=$((fail+1)); echo "FAIL[ingest]"; }
+# 4b. knowledge cwd 上行解析（无 AE_KNOWLEDGE_PATH 时自用户 cwd 找 docs/agents/knowledge）
+mkdir -p "$F/proj/docs/agents/knowledge/modules"
+printf '# K\n\n探针条目 probe-token-xyz\n' > "$F/proj/docs/agents/knowledge/modules/k.md"
+printf '# 知识索引\n' > "$F/proj/docs/knowledge-index-tmp" 2>/dev/null || true
+out=$(cd "$F/proj" && unset AE_KNOWLEDGE_PATH; "$BIN" knowledge query probe-token-xyz 2>&1)
+case "$out" in *proj/docs/agents/knowledge*) pass=$((pass+1));; *) fail=$((fail+1)); echo "FAIL[kquery-cwdwalk]";; esac
+
 # 5. 未知命令组 rc=2
 "$BIN" bogus >/dev/null 2>&1; ck bogus-rc "$?" "2"
 # 6. 无参 usage rc=0

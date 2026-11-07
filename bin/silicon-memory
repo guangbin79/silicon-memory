@@ -9,8 +9,9 @@ command -v node >/dev/null 2>&1 || {
   _nb="$(ls -d "$h"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1 || true)"
   if [ -n "$_nb" ]; then export PATH="$_nb${PATH:+:$PATH}"; fi
 }
-cd "$(dirname "$(readlink -f "$0")")/.."
-AE="skills/agent-experience/bin/ae.mjs"
+# 勿 cd 仓根：knowledge 的 cwd 上行解析须以用户真实 cwd 为锚（独立 CLI 语义，对齐文档）
+R="$(dirname "$(readlink -f "$0")")/.."
+AE="$R/skills/agent-experience/bin/ae.mjs"
 
 usage() {
   cat << 'HELP'
@@ -41,7 +42,7 @@ case "$cmd" in
       cards)    exec node "$AE" cards "$@" ;;
       score)    exec node "$AE" score "$@" ;;
       verify)   exec node "$AE" verify-anchors "$@" ;;
-      lint)     exec bash lint/lint.sh "$@" ;;
+      lint)     exec bash "$R/lint/lint.sh" "$@" ;;
       *) echo "usage: silicon-memory memory {capture|id|query|supersede|promote|validate|index|cards|score|verify|lint <store>}" >&2; exit 2 ;;
     esac ;;
   knowledge)
@@ -52,7 +53,7 @@ case "$cmd" in
       lint)  exec node "$AE" knowledge lint "$@" ;;
       ingest)
         # project-compound ingest 是 LLM 过程（无脚本入口）——CLI 定位 skill 入口并输出 runbook
-        PC="skills/project-compound"
+        PC="$R/skills/project-compound"
         if [ ! -f "$PC/SKILL.md" ]; then
           echo "knowledge ingest: project-compound skill 缺失（$PC/SKILL.md）" >&2
           exit 1
