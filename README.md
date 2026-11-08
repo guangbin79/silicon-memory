@@ -8,6 +8,8 @@
 
 Unified memory for coding agents. One installer wires **three memory layers** into your session — global experience (episodic), project knowledge (semantic, in-repo), and a hot semantic-memory service — with one agent-facing CLI. **Data stays where it lives**: installation only points to it, never migrates or converts.
 
+> **Super Agent 三支柱**：本仓为「存算分离」支柱（记忆/状态层）。另两根：[opencode-agora](https://github.com/guangbin79/opencode-agora)（调度 Router）· [coding-gates](https://github.com/guangbin79/coding-gates)（质量监督门）。三仓协同构成 super agent 实现。
+
 ```text
 You:    "Remember: this repo requires req-check before any release"
 memory:  └─ stored as a decision — keyword-searchable the moment it returns
