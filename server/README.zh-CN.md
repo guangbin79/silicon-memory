@@ -114,8 +114,8 @@ cp integrations/opencode/memory.ts ~/.config/opencode/plugins/
 #   cd ~/.config/opencode && npm install @opencode/plugin@^2.0.28
 
 # 可选：TUI 侧边栏面板（最近记忆注入，Ctrl+X B 查看）。
-# TUI 插件发现只认目录/软链：
-#   ln -s ~/semantic-memory/integrations/opencode/tui-plugin ~/.config/opencode/plugins/semantic-memory-tui
+# TUI 插件发现只认目录/软链；用实体目录部署（软链目标被删会锚死陈旧入口点）：
+#   cp -rfp integrations/opencode/silicon-memory-tui ~/.config/opencode/plugins/silicon-memory-tui
 ```
 
 其余宿主都是"钩子事件 → curl localhost:8765"的薄适配器——见

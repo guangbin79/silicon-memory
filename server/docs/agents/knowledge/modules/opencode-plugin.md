@@ -24,6 +24,7 @@
 - **Decision:** 一律 `cp integrations/opencode/memory.ts ~/.config/opencode/plugins/`；`@opencode/plugin` 依赖装进 `~/.config/opencode/package.json`（`bun add @opencode/plugin@^2.0.28`，OpenCode 启动时自动 bun install 的官方机制）
 - **Reason:** opencode.json 的 file:// 对象式 plugins 条目未列入官方文档（仅支持 npm 包名字符串），且该形态下依赖无处解析——实测从未加载成功。README 中该指引已证实为坏路径，待修
 - **Supplements（2026-10-20 晚）:** TUI 侧边栏面板走**目录形态**：`ln -s …/integrations/opencode/tui-plugin ~/.config/opencode/plugins/semantic-memory-tui`——TUI 插件发现（packages/tui/src/plugin/discovery.ts）只认目录/软链，单文件永不被 TUI 加载；入口约定＝目录下 `tui.tsx`（Host.resolve 解析 ./tui），槽位＝`context.ui.slot({ append: "sidebar.content" })`，热重载生效无需 service restart
+- **Supplements（2026-11-09）:** 插件更名 `silicon-memory-tui`（git mv，同目录形态）；软链形态废弃——软链目标被删后运行中 TUI 的入口点解析锚死旧 realpath，reconciliation 每 2min ENOENT、面板永不加载（log reconciliation 22-26 实证）；实体目录 `cp -rfp` 部署，新路径兼绕进程内陈旧解析缓存
 
 ## 环境陷阱（Bug Experiences 补遗）
 

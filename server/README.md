@@ -132,8 +132,9 @@ cp integrations/opencode/memory.ts ~/.config/opencode/plugins/
 #   cd ~/.config/opencode && npm install @opencode/plugin@^2.0.28
 
 # optional: TUI sidebar panel (recent memory injections, Ctrl+X B to view).
-# TUI plugin discovery only accepts directories/symlinks:
-#   ln -s ~/semantic-memory/integrations/opencode/tui-plugin ~/.config/opencode/plugins/semantic-memory-tui
+# TUI plugin discovery only accepts directories/symlinks; deploy as a real
+# directory (a dangling symlink pins a stale entrypoint):
+#   cp -rfp integrations/opencode/silicon-memory-tui ~/.config/opencode/plugins/silicon-memory-tui
 ```
 
 Every other harness is a thin "hook event → curl localhost:8765" shell adapter —

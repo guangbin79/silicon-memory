@@ -3,9 +3,9 @@
 // 数据源：GET /api/injections?session_id=<本会话>（注入上报携带的块全文），5s 轮询。
 // 设计约束：纯只读展示——不往模型上下文加任何内容，服务离线时静默保持旧态。
 //
-// 安装（目录形态，TUI 发现只认目录/软链）：
-//   ln -s ~/semantic-memory/integrations/opencode/tui-plugin ~/.config/opencode/plugins/semantic-memory-tui
-// 入口约定：Host.resolve 把目录下 ./tui 解析为本文件（tui.tsx）。
+// 安装（实体目录形态，TUI 发现只认目录/软链；软链目标若被删会锚死陈旧入口点，2026-11-09 事故）：
+//   cp -rfp server/integrations/opencode/silicon-memory-tui ~/.config/opencode/plugins/silicon-memory-tui
+// 入口约定：目录下 ./tui 解析为本文件（tui.tsx）。
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 
