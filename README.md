@@ -25,7 +25,7 @@ The difference in one line: **the session forgets; the store doesn't.** Native c
 
 ## Quick Start
 
-Prerequisites: `python3` ≥ 3.11, `node` (the CLI is a bash + node wrapper), `git`; [uv](https://docs.astral.sh/uv/) for the service venv. [opencode](https://opencode.ai) v2 for the plugin. GGUF models are optional — without them the service runs BM25-only (still useful).
+Prerequisites: `python3` ≥ 3.11, `node` (the CLI is a bash + node wrapper), `git`; [uv](https://docs.astral.sh/uv/) for the service venv. [opencode](https://opencode.ai) v2 for the plugin. GGUF models are optional — without them the service runs BM25-only (still useful). With models configured, CUDA is required: on no-GPU machines, or when free VRAM can't fit the embedder (estimate ×1.2), the service refuses to start and surfaces the reason (needed vs free MiB) via the discovery file, the log, and the plugin/TUI.
 
 ```bash
 git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
@@ -161,7 +161,7 @@ rm ~/.config/opencode/plugins/memory.ts   # if you installed the plugin
 ```
 Your data directories (`SM_EXP_STORE`, `SM_DATA_DIR`, and every project's `docs/agents/knowledge/`) are intentionally left alone — they are yours, not the tool's.
 
-**No GPU / no models?** The service runs BM25-only and tells you so. Add GGUF models to `<SM_DATA_DIR>/models/` later and run `semantic-memory backfill` once to vectorize existing entries.
+**No GPU / no models?** No models → BM25-only, and it tells you so. Models configured but no CUDA (or free VRAM below the embedder estimate ×1.2) → the service refuses to start and surfaces the reason (needed vs free MiB) in the discovery file (`*.server.json`), the server log, and the plugin/TUI. When the embedder fits but the reranker doesn't, rerank auto-disables (RRF order, no rerank). Add GGUF models to `<SM_DATA_DIR>/models/` later and run `semantic-memory backfill` once to vectorize existing entries.
 
 **Which harnesses work?** opencode v2 gets the in-process plugin (automatic). Claude Code and Kimi Code get hook adapters in [server/integrations/](server/integrations/); any harness with lifecycle hooks can wire "hook event → curl localhost:8765". The CLI and both file layers are harness-agnostic from day one.
 

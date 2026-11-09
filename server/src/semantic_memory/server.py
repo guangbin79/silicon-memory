@@ -35,8 +35,8 @@ from .web import INDEX_HTML
 from ._compat import HAS_NUMPY, INSTALL_HINT
 from . import gpu_breaker
 from .cloud import Consolidator
-from .config import (AUTO_MARGIN_MIB, AUTO_RESIDENCY_MIB, RERANK_GGUF_NAME,
-                     Config, auto_rerank_enabled)
+from .config import (RERANK_GGUF_NAME, Config, auto_rerank_enabled,
+                     estimate_vram_mib, vram_need_mib)
 from .consistency import run_sweep
 from .db import MemoryStore
 from .distiller import Distiller
@@ -59,7 +59,7 @@ from .project import backfill_project_keys, resolve_project
 from .paths import (MigrationError, MigrationRefused, default_model_path,
                     migrate_legacy, resolve_data_dir)
 from .reranker import Reranker
-from .startup_gate import check_startup
+from .startup_gate import check_gpu_gate, check_startup
 
 log = logging.getLogger("semantic_memory")
 
@@ -142,16 +142,19 @@ def _build_core() -> dict:
     set_noise_prefixes(cfg.noise_prefixes)  # 决策 11：前缀表随配置注入（默认空=惰性）
     store = MemoryStore(cfg.db_path)
     # rerank 三态落地：显式路径/"" 直接用；auto → 任何模型加载前探测整卡空闲，
-    # ≥ 三模型常驻+余量 → 3 常驻启用重排，否则 2 常驻关闭（RRF 直出）。
+    # 嵌入器预留后剩余显存装不下重排器预估×1.2 → 关闭（RRF 直出，2026-11-09 判据）。
     rerank_path = cfg.rerank_model
     if rerank_path is None and cfg.rerank_auto:
-        free_mib = _card_free_mib()
-        rerank_on = auto_rerank_enabled(free_mib, cfg.device)
+        free_mib = _card_free_mib() if cfg.device != "cpu" else None
+        embedder_mib = estimate_vram_mib(cfg.model_path) or 0
+        rerank_mib = estimate_vram_mib(default_model_path(RERANK_GGUF_NAME)) or 0
+        rerank_on = auto_rerank_enabled(free_mib, cfg.device,
+                                        embedder_mib=embedder_mib, rerank_mib=rerank_mib)
         if rerank_on:
             rerank_path = default_model_path(RERANK_GGUF_NAME)
-        log.info("rerank auto: device=%s free=%sMiB 阈值=%dMiB → %s",
-                 cfg.device, free_mib, AUTO_RESIDENCY_MIB + AUTO_MARGIN_MIB,
-                 "3 模型常驻，重排启用" if rerank_on else "2 模型常驻，重排关闭")
+        log.info("rerank auto: device=%s free=%sMiB 嵌入器预留=%dMiB 重排需=%dMiB → %s",
+                 cfg.device, free_mib, embedder_mib, vram_need_mib(rerank_mib),
+                 "重排启用" if rerank_on else "重排关闭（显存装不下）")
     embedder = Embedder(cfg.model_path, dim=cfg.embed_dim, device=cfg.device)
     return {
         "cfg": cfg, "store": store, "embedder": embedder,
@@ -1161,8 +1164,11 @@ def main() -> None:
     if cmd == "supersede":  # 人工温层退役入口（cloud.Consolidator 同款 UPDATE）
         raise SystemExit(_cmd_supersede(args[1:]))
 
-    # ---- 分层严格启动门（任务 9/R2）：拒启必须先于端口绑定 ----
+    # ---- 分层严格启动门（任务 9/R2）＋ CUDA/显存门（2026-11-09）：拒启先于端口绑定 ----
     gate = check_startup(cfg)
+    if gate:
+        raise SystemExit(gate)
+    gate = check_gpu_gate(cfg)
     if gate:
         raise SystemExit(gate)
 

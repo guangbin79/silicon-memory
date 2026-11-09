@@ -28,7 +28,8 @@
  *                   tags 可选；→ POST /ingest {content,kind,source:"remember",project}。
  *   memory_recall — 检索记忆。input：query 必填，limit 可选；→ POST /recall {query,limit}。
  * 工具转发走独立 10s 超时（不与 hooks 的 1.5s 共用——工具调用值得等模型/DB），
- * 服务不可达返回 "memory service unreachable (run semantic-memory setup)" 错误串、绝不 throw（fail-open）。
+ * 服务不可达返回错误串、绝不 throw（fail-open）；启动门拒启时透出
+ * 「热记忆未启动：<原因>」（discovery file refused/reason，2026-11-09）。
  * dev/legacy 线无 tool.transform 面，不注册（见 control() 稳定线判定）。
  *
  * 设计约束（勿破坏）：
@@ -170,8 +171,35 @@ async function postTool(path: string, body: unknown): Promise<string> {
     if (!res.ok) return `memory service error (HTTP ${res.status})`;
     return JSON.stringify(await res.json());
   } catch {
-    return "memory service unreachable (run semantic-memory setup)"; // 服务未启动 / 超时 / 网络异常：错误串降级+安装提示
+    // 服务不可达：启动门拒启时读 discovery file 的原因透出（2026-11-09），否则笼统文案
+    const why = await refusalReason();
+    return why ? `热记忆未启动：${why}` : "memory service unreachable (run semantic-memory setup)";
   }
+}
+
+/**
+ * 服务拒启原因：discovery file 的 refused/reason 字段；null = 非拒启（服务未装/正常下线/读不到）。
+ * 镜像 paths.py/config.py 解析链：MEMORY_DB_PATH > MEMORY_DATA_DIR > XDG/memory-mcp >
+ * ~/semantic-memory；空串视同未设、~/ 展开（与 Python truthiness/expanduser 同语义）；
+ * discovery 位置可被 MEMORY_DISCOVERY_FILE 迁移/关闭（""/off/none）。config.toml 档不镜像（插件侧不读 toml）。
+ */
+async function refusalReason(): Promise<string | null> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const home = os.homedir();
+    const expand = (p: string): string => (p.startsWith("~/") ? `${home}/${p.slice(2)}` : p);
+    const xdg = expand(process.env.XDG_DATA_HOME || "");
+    const dataDir = expand(process.env.MEMORY_DATA_DIR || "")
+      || (xdg ? `${xdg}/memory-mcp` : `${home}/semantic-memory`);
+    const db = process.env.MEMORY_DB_PATH || `${dataDir}/data/memory.db`;
+    const custom = (process.env.MEMORY_DISCOVERY_FILE || "").trim();
+    const discovery = custom && !["off", "none"].includes(custom.toLowerCase())
+      ? custom
+      : `${db}.server.json`;
+    const info = JSON.parse(await readFile(discovery, "utf8"));
+    return info?.refused && typeof info.reason === "string" ? info.reason : null;
+  } catch { return null; }
 }
 
 let serviceChecked = false;
@@ -762,7 +790,7 @@ async function control(ctx: StableCtx, options?: Record<string, unknown>): Promi
       /**
        * 原生记忆工具（A4/D9，仅 stable 线——dev/legacy 线无 tool.transform 面，跳过）。
        * input 为纯 JSON Schema；转发走 postTool 独立 10s 超时；服务不可达返回
-       * "memory service unreachable (run semantic-memory setup)" 错误串、绝不 throw（工具面 fail-open）。
+       * 服务不可达返回错误串（拒启时透出「热记忆未启动：<原因>」）、绝不 throw（工具面 fail-open）。
        */
       if (typeof ctx.tool?.transform === "function") {
         await ctx.tool.transform((editor) => {

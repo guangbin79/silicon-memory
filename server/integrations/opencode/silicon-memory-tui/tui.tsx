@@ -16,10 +16,33 @@ const MAX_ROWS = 5
 
 type Inj = { ts: number; hook: string; project: string | null; chars: number; block: string | null }
 
+/** 服务拒启原因：discovery file 的 refused/reason（2026-11-09 启动门）；null=非拒启。
+ *  镜像 paths.py/config.py：MEMORY_DB_PATH > MEMORY_DATA_DIR > XDG/memory-mcp > ~/semantic-memory；
+ *  空串视同未设＋~/ 展开；discovery 可被 MEMORY_DISCOVERY_FILE 迁移/关闭（""/off/none）。 */
+async function refusalReason(): Promise<string | null> {
+  try {
+    const { readFile } = await import("node:fs/promises")
+    const os = await import("node:os")
+    const home = os.homedir()
+    const expand = (p: string): string => (p.startsWith("~/") ? `${home}/${p.slice(2)}` : p)
+    const xdg = expand(process.env.XDG_DATA_HOME || "")
+    const dataDir = expand(process.env.MEMORY_DATA_DIR || "")
+      || (xdg ? `${xdg}/memory-mcp` : `${home}/semantic-memory`)
+    const db = process.env.MEMORY_DB_PATH || `${dataDir}/data/memory.db`
+    const custom = (process.env.MEMORY_DISCOVERY_FILE || "").trim()
+    const discovery = custom && !["off", "none"].includes(custom.toLowerCase())
+      ? custom
+      : `${db}.server.json`
+    const info = JSON.parse(await readFile(discovery, "utf8"))
+    return info?.refused && typeof info.reason === "string" ? info.reason : null
+  } catch { return null }
+}
+
 export function SidebarMemory(props: { context: Plugin.Context; sessionID: string }) {
   const [rows, setRows] = createSignal<Inj[]>([])
   const [degraded, setDegraded] = createSignal<string | null>(null)
   const [online, setOnline] = createSignal<boolean | null>(null)
+  const [refused, setRefused] = createSignal<string | null>(null)
   const [rowsOk, setRowsOk] = createSignal(false) // 零态前提：injections 拉取成功——health 探活≠数据可读
   const theme = props.context.theme
 
@@ -30,10 +53,15 @@ export function SidebarMemory(props: { context: Plugin.Context; sessionID: strin
         const hd = await h.json()
         setDegraded(hd.gpu_degraded ?? null)
         setOnline(true)
+        setRefused(null)
       } else {
         setOnline(false)
+        setRefused(await refusalReason())
       }
-    } catch { setOnline(false) /* 服务离线：保持旧态，下轮再试（rows/degraded 不动） */ }
+    } catch {
+      setOnline(false) /* 服务离线：保持旧态，下轮再试（rows/degraded 不动） */
+      setRefused(await refusalReason())
+    }
     try {
       const res = await fetch(
         `${SERVICE}/api/injections?session_id=${encodeURIComponent(props.sessionID)}&limit=${MAX_ROWS}`,
@@ -69,8 +97,17 @@ export function SidebarMemory(props: { context: Plugin.Context; sessionID: strin
 
   return (
     <>
-      {/* 熔断期：停止注入是设计（劣质召回不如不注入）——面板显示服务状态 */}
-      <Show when={degraded()}>
+      {/* 服务拒启（2026-11-09 启动门）：离线时透出原因——让位于陈旧熔断态之上（离线时 degraded 是旧运行残留） */}
+      <Show when={online() === false && refused()}>
+        {(why) => (
+          <box>
+            <text fg={theme.text.base}><b>热记忆未启动</b></text>
+            <text fg={theme.text.muted}>{why()}</text>
+          </box>
+        )}
+      </Show>
+      {/* 熔断期：仅在线展示；离线时 degraded 为旧态残留，拒启原因更新鲜 */}
+      <Show when={online() !== false && degraded()}>
         <box>
           <text fg={theme.text.base}><b>记忆服务已熔断</b></text>
           <text fg={theme.text.muted}>{degraded()}</text>

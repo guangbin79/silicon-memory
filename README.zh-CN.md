@@ -23,7 +23,7 @@
 
 ## 快速开始
 
-前置：`python3` ≥ 3.11、`node`（CLI 是 bash + node 包装）、`git`；服务 venv 用 [uv](https://docs.astral.sh/uv/)。插件需 [opencode](https://opencode.ai) v2。GGUF 模型可选——没有时服务以纯 BM25 降级运行（依然可用）。
+前置：`python3` ≥ 3.11、`node`（CLI 是 bash + node 包装）、`git`；服务 venv 用 [uv](https://docs.astral.sh/uv/)。插件需 [opencode](https://opencode.ai) v2。GGUF 模型可选——没有时服务以纯 BM25 降级运行（依然可用）。配置了模型则需要 CUDA：无 GPU 或空闲显存装不下嵌入器（预估×1.2）时服务拒绝启动，原因（需多少/剩多少）经 discovery file、日志与插件/TUI 透出。
 
 ```bash
 git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
@@ -159,7 +159,7 @@ rm ~/.config/opencode/plugins/memory.ts   # 装了插件的话
 ```
 你的数据目录（`SM_EXP_STORE`、`SM_DATA_DIR`、各项目的 `docs/agents/knowledge/`）有意不动——它们是你的，不是工具的。
 
-**没有 GPU / 没有模型？** 服务以纯 BM25 降级运行并明确告知。之后把 GGUF 模型放进 `<SM_DATA_DIR>/models/`，跑一次 `semantic-memory backfill` 为存量条目补向量。
+**没有 GPU / 没有模型？** 没有模型 → 纯 BM25 运行并明确告知。配置了模型但无 CUDA（或空闲显存低于嵌入器预估×1.2）→ 服务拒绝启动，原因（需多少/剩多少 MiB）写入 discovery file（`*.server.json`）、日志与插件/TUI。嵌入器装得下而重排器装不下时，重排自动关闭（RRF 序直出）。之后把 GGUF 模型放进 `<SM_DATA_DIR>/models/`，跑一次 `semantic-memory backfill` 为存量条目补向量。
 
 **支持哪些 harness？** opencode v2 有进程内插件（全自动）。Claude Code 与 Kimi Code 在 [server/integrations/](server/integrations/) 有钩子适配器；任何有生命周期钩子的 harness 都能接"钩子事件 → curl localhost:8765"。CLI 与两个文件层从第一天起就与 harness 无关。
 

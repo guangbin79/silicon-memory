@@ -9,6 +9,7 @@ distill_model/device/token/db_path/host/port/cloud_*）；tomllib 标准库读�
 from __future__ import annotations
 
 import json
+import math
 import os
 import tomllib
 from dataclasses import dataclass
@@ -63,21 +64,42 @@ def write_config(data_dir: Path, values: dict) -> Path:
     return path
 
 
-# ---- rerank auto 阈值（2026-10-29 真机 spike：RTX 3060 Laptop 6GB，三模型各自常驻
-# 拓扑下 per-pid 实测 4802 MiB = embed 1956 + rerank +1026 + distill +1820，取整 4800）----
-AUTO_RESIDENCY_MIB = 4800
-AUTO_MARGIN_MIB = 512  # 吸收 nvidia-smi 记账差与其他进程迟到的显存占用
+# ---- 显存判据（2026-11-09 重排，取代 2026-10-29 固定阈值 5312MiB——
+# 固定阈值在显存不足以运行时仍加载，6GB 卡重排器 100% 超时 fail-open）----
+# 锚点（2026-11-07 真机实证）：0.6B Q8 权重 ~700MB → 嵌入器懒加载热态 1944MiB，比值≈2.8。
+VRAM_PER_FILE_MIB = 2.8  # 每 MiB 权重的常驻显存系数（Q8 GGUF 锚点，Q4/Q8 通用近似）
+VRAM_MARGIN = 1.2        # 判定余量：需 = 预估 × 1.2（吸收 nvidia-smi 记账差与迟到占用）
 RERANK_GGUF_NAME = "qwen3-reranker-0.6b-q8_0.gguf"  # auto 常规路径文件名（单一事实源）
 
 
-def auto_rerank_enabled(free_mib: int | None, device: str) -> bool:
-    """auto 模式判定：启动时空闲显存 ≥ 三模型常驻+余量 → 开（3 常驻）；否则关（2 常驻）。
+def estimate_vram_mib(model_path: Path | None) -> int | None:
+    """按权重文件大小预估常驻显存（MiB）；未配置/文件缺失 → None。"""
+    if model_path is None:
+        return None
+    try:
+        size_mib = model_path.stat().st_size / 2**20
+    except OSError:
+        return None
+    return math.ceil(size_mib * VRAM_PER_FILE_MIB)
 
+
+def vram_need_mib(estimate: int | None) -> int:
+    """判定需求线：预估 × 1.2 余量（ceil）；判定与日志的单一事实源。"""
+    return math.ceil((estimate or 0) * VRAM_MARGIN)
+
+
+def auto_rerank_enabled(free_mib: int | None, device: str, *,
+                        embedder_mib: int = 0, rerank_mib: int = 0) -> bool:
+    """auto 模式判定（2026-11-09）：嵌入器预留后，剩余显存装不下重排器预估×1.2 → 关。
+
+    显存为代理判据（算力无可靠探测，超时已有 fail-open 兜底）。
     cpu 无显存约束恒开；探测不可得（None）宁可降级不赌 OOM。
     """
     if device == "cpu":
         return True
-    return free_mib is not None and free_mib >= AUTO_RESIDENCY_MIB + AUTO_MARGIN_MIB
+    if free_mib is None:
+        return False
+    return free_mib - embedder_mib >= vram_need_mib(rerank_mib)
 
 
 @dataclass(frozen=True)

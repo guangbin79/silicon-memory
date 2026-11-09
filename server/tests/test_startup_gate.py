@@ -1,13 +1,15 @@
 """分层严格启动契约测试（任务 9/R2）：门函数独立单测 + main() 接线。"""
 import io
+import json
 import logging
+import shutil
 import sys
 from dataclasses import replace
 
 import pytest
 
 from semantic_memory.config import Config
-from semantic_memory.startup_gate import check_startup
+from semantic_memory.startup_gate import check_gpu_gate, check_startup
 
 
 def clean_env(monkeypatch, tmp_path):
@@ -156,3 +158,133 @@ def test_bind_gate_not_bypassed_by_allow_bm25_only(monkeypatch, tmp_path):
                   allow_bm25_only=True)
     code, err = gate(cfg)
     assert code == 2 and "MEMORY_TOKEN" in err
+
+
+# ---------------- CUDA/显存启动门（2026-11-09 裁定：无 CUDA/装不下 → 拒启＋原因透出） ----------------
+
+def gpu_gate(cfg: Config) -> tuple[int, str, str]:
+    """check_gpu_gate 薄封装：捕获 stderr/stdout 与返回码。"""
+    err, out = io.StringIO(), io.StringIO()
+    return check_gpu_gate(cfg, err=err, out=out), err.getvalue(), out.getvalue()
+
+
+def embed_cfg(tmp_path, size_mib=700):
+    """已配置且存在的嵌入模型（稀疏文件）→ 门进入显存判定。
+
+    discovery_file 显式钉到 tmp：全量套件里 test_eval/test_telemetry 模块导入时
+    持久设 MEMORY_DB_PATH，from_env 推导的 discovery 会漂出 tmp（隔离教训）。
+    """
+    p = tmp_path / "embed.gguf"
+    with open(p, "wb") as f:
+        f.truncate(size_mib * 2**20)
+    return replace(Config.from_env(), model_path=p, distill_model=None,
+                   discovery_file=tmp_path / "data" / "memory.db.server.json")
+
+
+def fake_nvidia_smi(monkeypatch):
+    """伪造 nvidia-smi 在场（探测本身由 mock _card_free_mib 承担，禁真卡）。"""
+    real = shutil.which
+    monkeypatch.setattr(shutil, "which",
+                        lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else real(name))
+
+
+def test_gpu_gate_no_cuda_refuses_and_writes_discovery(monkeypatch, tmp_path):
+    clean_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda name: None)  # 无 nvidia-smi
+    code, err, out = gpu_gate(embed_cfg(tmp_path))
+    assert code == 2
+    assert "无 CUDA" in err and err == out                    # stderr/stdout 同因
+    disc = tmp_path / "data" / "memory.db.server.json"
+    info = json.loads(disc.read_text(encoding="utf-8"))
+    assert info["refused"] is True and "无 CUDA" in info["reason"]
+
+
+def test_gpu_gate_insufficient_vram_refuses_with_digits(monkeypatch, tmp_path):
+    import semantic_memory.embedder as emb
+    clean_env(monkeypatch, tmp_path)
+    fake_nvidia_smi(monkeypatch)
+    monkeypatch.setattr(emb, "_card_free_mib", lambda: 1000)
+    code, err, out = gpu_gate(embed_cfg(tmp_path))           # 700MiB → 需 ceil(1960×1.2)=2352
+    assert code == 2
+    assert "2352" in err and "1000" in err and err == out    # 需多少/剩多少
+    info = json.loads((tmp_path / "data" / "memory.db.server.json").read_text(encoding="utf-8"))
+    assert info["refused"] is True and "2352" in info["reason"] and "1000" in info["reason"]
+
+
+def test_gpu_gate_sufficient_vram_passes(monkeypatch, tmp_path):
+    import semantic_memory.embedder as emb
+    clean_env(monkeypatch, tmp_path)
+    fake_nvidia_smi(monkeypatch)
+    monkeypatch.setattr(emb, "_card_free_mib", lambda: 2400)  # ≥ 2352
+    code, err, out = gpu_gate(embed_cfg(tmp_path))
+    assert code == 0 and err == "" and out == ""
+    assert not (tmp_path / "data" / "memory.db.server.json").exists()  # 放行不写盘
+
+
+def test_gpu_gate_device_cpu_exempt(monkeypatch, tmp_path):
+    clean_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    code, _, _ = gpu_gate(replace(embed_cfg(tmp_path), device="cpu"))
+    assert code == 0
+
+
+def test_gpu_gate_bm25_only_exempt(monkeypatch, tmp_path):
+    clean_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda name: None)  # 无 GPU 也不拦纯 BM25
+    code, _, _ = gpu_gate(replace(Config.from_env(), model_path=None, distill_model=None))
+    assert code == 0
+
+
+def test_refusal_does_not_clobber_live_instance(monkeypatch, tmp_path):
+    """存活实例的发现文件不得被拒启信息覆盖（插件仍指活服务）。"""
+    import semantic_memory.embedder as emb
+    import semantic_memory.startup_gate as sg
+    clean_env(monkeypatch, tmp_path)
+    fake_nvidia_smi(monkeypatch)
+    monkeypatch.setattr(emb, "_card_free_mib", lambda: 0)
+    monkeypatch.setattr(sg, "_pid_alive", lambda pid: True)
+    disc = tmp_path / "data"
+    disc.mkdir(parents=True)
+    f = disc / "memory.db.server.json"
+    f.write_text(json.dumps({"pid": 12345, "url": "http://x:1"}), encoding="utf-8")
+    code, _, _ = gpu_gate(embed_cfg(tmp_path))
+    assert code == 2
+    assert json.loads(f.read_text(encoding="utf-8"))["url"] == "http://x:1"  # 原样保留
+
+
+def test_refusal_overwrites_stale_discovery(monkeypatch, tmp_path):
+    """死 pid 的陈旧发现文件 → 覆写为拒启信息（pid=0 视为不存活）。"""
+    import semantic_memory.embedder as emb
+    clean_env(monkeypatch, tmp_path)
+    fake_nvidia_smi(monkeypatch)
+    monkeypatch.setattr(emb, "_card_free_mib", lambda: 0)
+    disc = tmp_path / "data"
+    disc.mkdir(parents=True)
+    f = disc / "memory.db.server.json"
+    f.write_text(json.dumps({"pid": 0, "url": "http://stale"}), encoding="utf-8")
+    code, _, _ = gpu_gate(embed_cfg(tmp_path))
+    assert code == 2
+    info = json.loads(f.read_text(encoding="utf-8"))
+    assert info["refused"] is True and "url" not in info
+
+
+def test_main_gpu_gate_refuses_before_serve(monkeypatch, tmp_path):
+    from semantic_memory import server
+
+    p = tmp_path / "embed.gguf"
+    with open(p, "wb") as f:
+        f.truncate(2**20)
+    monkeypatch.setattr(shutil, "which", lambda name: None)  # 无 CUDA
+    bad = replace(server.cfg, model_path=p, distill_model=None,
+                  allow_bm25_only=False, discovery_file=tmp_path / "d.json")
+    monkeypatch.setattr(server, "cfg", bad)
+
+    def must_not_bind(*a, **kw):
+        raise AssertionError("拒启后不得绑定端口/进入 serve")
+
+    monkeypatch.setattr(server, "serve", must_not_bind)
+    monkeypatch.setattr(sys, "argv", ["semantic-memory"])
+    with pytest.raises(SystemExit) as exc:
+        server.main()
+    assert exc.value.code == 2
+    assert json.loads((tmp_path / "d.json").read_text(encoding="utf-8"))["refused"] is True

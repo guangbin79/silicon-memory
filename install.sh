@@ -82,7 +82,7 @@ grep -q 'MEMORY_DATA_DIR=' "$RC" || printf '\nexport MEMORY_DATA_DIR="%s"\n' "$D
 
 # 7. 模型缺失提示（不自动拉大文件）
 if [ -z "$(ls "$DATA/models" 2>/dev/null)" ]; then
-  echo "install: 语义记忆模型缺失——下载 embedding/distiller GGUF 至 $DATA/models/（清单见 README），server 将以纯 BM25 降级运行"
+  echo "install: 语义记忆模型缺失——下载 embedding/distiller GGUF 至 $DATA/models/（清单见 README）；未配模型时 server 以纯 BM25 运行，配置了模型但无 CUDA/显存不足时 server 将拒绝启动（原因见 discovery file）"
 fi
 
 echo "install: 完成。config=$CFGDIR/config  CLI=$(command -v silicon-memory || echo "$HOME/.local/bin/silicon-memory")"
