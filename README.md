@@ -49,7 +49,7 @@ Now just talk to your session as usual:
 | compaction fires mid-session | pre-compaction flush: the discarded context is searchable, not gone |
 | *"how did we solve X before?"* | native `memory_recall` tool / `silicon-memory knowledge query` → fused hits, cross-project extras flagged |
 
-Update path: `git pull` — the CLI and skills are symlinks into the repo, they follow automatically. Re-run `./install.sh` only if the service venv is missing (the installer skips an existing venv; if `server/pyproject.toml` dependencies changed, delete `server/venv` and re-run).
+Update path: `git pull && ./install.sh` — the CLI and skills are symlinks into the repo and follow automatically; the opencode plugin and TUI are copies the installer deploys, so re-running the installer refreshes them (the installer skips an existing venv; if `server/pyproject.toml` dependencies changed, delete `server/venv` and re-run).
 
 ## The Three Layers
 
@@ -92,7 +92,7 @@ silicon-memory CLI — the agent-facing face (declare it, it's on PATH)
 
 **Agent-facing CLI (standalone model).** The CLI is not a shell through something else — agent-side instructions (skills / AGENTS.md) declare `silicon-memory memory …` and `silicon-memory knowledge …` directly. Deployment-side governance faces (practice / policy / evolution / groom) are intentionally not in this repo.
 
-**opencode wiring.** One face, one file: `cp server/integrations/opencode/memory.ts ~/.config/opencode/plugins/` — the plugin alone delivers hook-driven recall / injection / auto-capture (with `MEMORY_PLUGIN_AUTOSTART=1` service spawn) **and** the native `memory_store` / `memory_recall` tools. No MCP registration needed. Other harnesses: hook adapters in [server/integrations/](server/integrations/).
+**opencode wiring.** The installer deploys the plugin and TUI automatically (`server/integrations/opencode/memory.ts` and the `silicon-memory-tui/` directory → `~/.config/opencode/plugins/` as real copies; re-run `./install.sh` to refresh, or manually `cp -rfp`). The plugin alone delivers hook-driven recall / injection / auto-capture (with `MEMORY_PLUGIN_AUTOSTART=1` service spawn) **and** the native `memory_store` / `memory_recall` tools. No MCP registration needed. Other harnesses: hook adapters in [server/integrations/](server/integrations/).
 
 ## Highlights
 
@@ -149,7 +149,7 @@ Honest by design — what's machine-checked vs what's trusted:
 
 ## FAQ
 
-**How do I update?** `git pull && ./install.sh` — the CLI and skills are symlinks into the repo, the service payload is a copy, so re-running the installer is required after pulling.
+**How do I update?** `git pull && ./install.sh` — the CLI and skills are symlinks into the repo; the opencode plugin and TUI are copies, so re-running the installer refreshes them after pulling.
 
 **How do I uninstall?**
 ```bash
@@ -157,6 +157,7 @@ rm -f ~/.local/bin/silicon-memory ~/.local/bin/semantic-memory
 rm -rf ~/.config/silicon-memory
 rm -f ~/.config/opencode/skills/{agent-experience,project-compound,unified-memory}
 rm ~/.config/opencode/plugins/memory.ts   # if you installed the plugin
+rm -rf ~/.config/opencode/plugins/silicon-memory-tui   # if you installed the TUI panel
 # remove the MEMORY_DATA_DIR line from your shell rc
 ```
 Your data directories (`SM_EXP_STORE`, `SM_DATA_DIR`, and every project's `docs/agents/knowledge/`) are intentionally left alone — they are yours, not the tool's.

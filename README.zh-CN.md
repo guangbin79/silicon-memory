@@ -47,7 +47,7 @@ git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
 | 会话中途触发压缩 | 压缩前冲刷：被丢弃的上下文可检索，而不是消失 |
 | *"我们之前怎么解决 X 的？"* | 原生 `memory_recall` 工具 / `silicon-memory knowledge query` → 融合命中，跨项目补充带标记 |
 
-更新方式：`git pull`——CLI 与 skills 是指向仓的软链，自动跟随。仅当服务 venv 缺失时才需重跑 `./install.sh`（安装器跳过已存在的 venv；若 `server/pyproject.toml` 依赖变更，删 `server/venv` 后重跑）。
+更新方式：`git pull && ./install.sh`——CLI 与 skills 是指向仓的软链，自动跟随；opencode 插件与 TUI 是安装器部署的拷贝，重跑安装器即刷新（安装器跳过已存在的 venv；若 `server/pyproject.toml` 依赖变更，删 `server/venv` 后重跑）。
 
 ## 三层记忆
 
@@ -90,7 +90,7 @@ silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 P
 
 **面向 agent 的 CLI（独立模式）。** CLI 不是别的壳的转发——agent 侧指令（skills / AGENTS.md）直接声明 `silicon-memory memory …` 与 `silicon-memory knowledge …`。部署方治理面（practice / policy / evolution / groom）有意不在本仓。
 
-**opencode 接线。** 一个面一个文件：`cp server/integrations/opencode/memory.ts ~/.config/opencode/plugins/`——插件独自交付钩子驱动的召回 / 注入 / 自动捕获（`MEMORY_PLUGIN_AUTOSTART=1` 时自动拉起服务）**与**原生 `memory_store` / `memory_recall` 工具，无需任何 MCP 注册。其他 harness：[server/integrations/](server/integrations/) 的钩子适配器。
+**opencode 接线。** 安装器自动部署插件与 TUI（`server/integrations/opencode/memory.ts` 与 `silicon-memory-tui/` 目录 → `~/.config/opencode/plugins/` 实体拷贝；重跑 `./install.sh` 即刷新，或手动 `cp -rfp`）。插件独自交付钩子驱动的召回 / 注入 / 自动捕获（`MEMORY_PLUGIN_AUTOSTART=1` 时自动拉起服务）**与**原生 `memory_store` / `memory_recall` 工具，无需任何 MCP 注册。其他 harness：[server/integrations/](server/integrations/) 的钩子适配器。
 
 ## 核心能力
 
@@ -147,7 +147,7 @@ silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 P
 
 ## FAQ
 
-**怎么更新？** `git pull && ./install.sh`——CLI 与 skills 是指向仓的软链，服务载荷是拷贝，拉完必须重跑安装器。
+**怎么更新？** `git pull && ./install.sh`——CLI 与 skills 是指向仓的软链；opencode 插件与 TUI 是拷贝，拉完重跑安装器即刷新。
 
 **怎么卸载？**
 ```bash
@@ -155,6 +155,7 @@ rm -f ~/.local/bin/silicon-memory ~/.local/bin/semantic-memory
 rm -rf ~/.config/silicon-memory
 rm -f ~/.config/opencode/skills/{agent-experience,project-compound,unified-memory}
 rm ~/.config/opencode/plugins/memory.ts   # 装了插件的话
+rm -rf ~/.config/opencode/plugins/silicon-memory-tui   # 装了 TUI 面板的话
 # 删 shell rc 里 MEMORY_DATA_DIR 那行
 ```
 你的数据目录（`SM_EXP_STORE`、`SM_DATA_DIR`、各项目的 `docs/agents/knowledge/`）有意不动——它们是你的，不是工具的。

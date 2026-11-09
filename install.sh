@@ -3,6 +3,7 @@
 # 用法: ./install.sh [--exp-store DIR] [--data-dir DIR]   # 缺参交互询问
 # 产物: ~/.config/silicon-memory/config、~/.local/bin/{silicon-memory,semantic-memory}、
 #       ~/.config/opencode/skills/{3 skills} 软链、
+#       ~/.config/opencode/plugins/{memory.ts, silicon-memory-tui/} 实体拷贝、
 #       shell rc 缺 MEMORY_DATA_DIR export 时补一行
 set -euo pipefail
 R="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -27,8 +28,12 @@ mkdir -p "$EXP" "$DATA"
 # 1. config（agentctl/ae.mjs 与插件共读；写前 diff 保幂等）
 CFGDIR="$HOME/.config/silicon-memory"
 mkdir -p "$CFGDIR"
-# 合并语义：刷新两枚规范键，保留手加键（如 SM_NOISE_PREFIXES）——重跑不清户
 [ -f "$CFGDIR/config" ] || : > "$CFGDIR/config"
+# 有效数据目录＝既有 config 的 SM_DATA_DIR（本次改写前读；模型缺失提示按它指路，避免交互默认值误导）
+# 全新装机无既有 config 时，即将生效的就是本次 $DATA（交互缺省时恰为 ~/.hotmem）
+EDATA="$(sed -n 's/^SM_DATA_DIR=//p' "$CFGDIR/config" | tail -1)"
+EDATA="${EDATA:-$DATA}"
+# 合并语义：刷新两枚规范键，保留手加键（如 SM_NOISE_PREFIXES）——重跑不清户
 grep -vE '^SM_(EXP_STORE|DATA_DIR)=' "$CFGDIR/config" > "$CFGDIR/config.new" || true
 printf '%s\n%s\n' "SM_EXP_STORE=$EXP" "SM_DATA_DIR=$DATA" >> "$CFGDIR/config.new"
 mv "$CFGDIR/config.new" "$CFGDIR/config"
@@ -65,11 +70,24 @@ if [ -x "$R/server/venv/bin/python" ]; then
 fi
 
 # 4. skills 软链农场（opencode 约定；其他 harness 见 README 手动接线）
+# opencode 在用与否须在 skills mkdir 前探测（skills 节会创建 ~/.config/opencode，之后探测恒真）
+OC_EXISTED=0; [ -d "$HOME/.config/opencode" ] && OC_EXISTED=1
 SKDIR="$HOME/.config/opencode/skills"
 mkdir -p "$SKDIR"
 for s in agent-experience project-compound unified-memory; do
   ln -sfn "$R/skills/$s" "$SKDIR/$s"
 done
+
+# 4c. 插件/TUI 实体部署（拷贝非软链——重跑即刷新；opencode 未用则整节跳过）
+if [ "$OC_EXISTED" = 1 ]; then
+  PLDIR="$HOME/.config/opencode/plugins"
+  mkdir -p "$PLDIR"
+  # 先删再拷（rm -r 不跟链不伤外置目标）：清活/悬空软链、文件占位、上游删改残留，刷新即精确镜像
+  rm -rf "$PLDIR/memory.ts"
+  cp -rfp "$R/server/integrations/opencode/memory.ts" "$PLDIR/memory.ts"
+  rm -rf "$PLDIR/silicon-memory-tui"
+  cp -rfp "$R/server/integrations/opencode/silicon-memory-tui" "$PLDIR/"
+fi
 
 # 5. shell rc 补 MEMORY_DATA_DIR export（server/plugin 经 env 读数据目录；已有则零写入）
 case "$(basename "${SHELL:-bash}")" in
@@ -80,9 +98,9 @@ esac
 touch "$RC"
 grep -q 'MEMORY_DATA_DIR=' "$RC" || printf '\nexport MEMORY_DATA_DIR="%s"\n' "$DATA" >> "$RC"
 
-# 7. 模型缺失提示（不自动拉大文件）
-if [ -z "$(ls "$DATA/models" 2>/dev/null)" ]; then
-  echo "install: 语义记忆模型缺失——下载 embedding/distiller GGUF 至 $DATA/models/（清单见 README）；未配模型时 server 以纯 BM25 运行，配置了模型但无 CUDA/显存不足时 server 将拒绝启动（原因见 discovery file）"
+# 7. 模型缺失提示（不自动拉大文件；路径按有效数据目录——改写前 config 的 SM_DATA_DIR，缺省 ~/.hotmem）
+if [ -z "$(ls "$EDATA/models" 2>/dev/null)" ]; then
+  echo "install: 语义记忆模型缺失——下载 embedding/distiller GGUF 至 $EDATA/models/（清单见 README）；未配模型时 server 以纯 BM25 运行，配置了模型但无 CUDA/显存不足时 server 将拒绝启动（原因见 discovery file）"
 fi
 
 echo "install: 完成。config=$CFGDIR/config  CLI=$(command -v silicon-memory || echo "$HOME/.local/bin/silicon-memory")"
