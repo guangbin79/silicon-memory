@@ -58,6 +58,16 @@ NOISE_SAMPLES = [
     # agorad 结果回执族（理论已覆盖，显式钉防回归）
     "[agora] task ag-76ad62 result from agorad\n"
     "任务 ag-76ad62 已 closed；commit=356c6c3b040d66e3a383a81336930c94b8361efa",
+    # 里程碑 relay 族（2026-11-10 批量退役 188 条形态实证；词表外也拒收）
+    "任务 ag-b7d20c merged @ 5d5164d6bf2f179a66d95c90d6bad1951",
+    "任务 ag-b7d20c 已入验证门，等待验收",
+    "任务 ag-b7d20c 被取消，需重派",
+    "任务 ag-b7d20c 重新打开",
+    "已入验证门，等待验收",
+    "验证门任务 ag-b7d20c 已 done",
+    "Multiple merged milestones: ag-a、ag-b",
+    "[agora] task ag-b7d20c milestone from agorad",
+    "Task ag-b7d20c reopened by dispatcher",
 ]
 
 KEEP_SAMPLES = [
@@ -79,6 +89,11 @@ KEEP_SAMPLES = [
     # page:/env: 的知识附言不误杀
     "[agora] task ag-1 note from ses_y\n"
     "部署看板见 page: docs/deploy.md，env: staging 的根因分析是证书过期",
+    # 原话优先锚定：用户真实消息以任务号开头、无紧随里程碑动词 → 不误拒
+    "任务 ag-e2cbf3 的验收命令是什么",
+    "任务 ag-e2cbf3 的 goal 写错了，帮我改一下",
+    # 动词后接非边界续文（疑问/叙述续文非回执形态）→ 不误拒
+    "任务 ag-b7d20c 被取消了吗？",
 ]
 
 
@@ -102,6 +117,21 @@ def test_strip_keeps_knowledge_lines():
     assert strip_noise_lines("task ag-x done from ses_y\n保留的知识") == "保留的知识"
     assert strip_noise_lines("verify 失败——修复后重新 post(done, commit)\n真知识") == "真知识"
     assert strip_noise_lines("无噪声") == "无噪声"
+
+
+def test_relay_line_stripped_from_mixed_content():
+    """里程碑 relay 族 flush 滤洗投影：relay 行（含无前缀形态）不入蒸馏
+    输入，纯 relay 行整行丢弃，知识行保留。"""
+    assert strip_noise_lines("任务 ag-1 已入验证门\n真实知识") == "真实知识"
+    assert strip_noise_lines("已入验证门，等待验收") == ""
+
+
+def test_relay_family_never_overrides_credential():
+    """安全族红线：凭据＋relay 混合条目仍走凭据硬拒——relay 族判定置后，
+    凭据族语义与优先级完全不变（新规则只增拒收，不翻凭据行结局）。"""
+    cred = "任务 ag-1 已 merged\n[agora] credential ag-1\ntoken: " + "a" * 64
+    assert is_task_event_noise(cred) is True
+    assert strip_noise_lines(cred + "\n知识") == "知识"
 
 
 def test_strip_drops_credential_lines_keeps_knowledge():

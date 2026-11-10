@@ -4,7 +4,8 @@
 transcript 事件行再创作）：先剥标识 token（哈希/session/task id/路径）与
 门禁样板子串，残余对照词表。宁漏勿误——任何一行含词表外正文即放行整条
 （误杀知识不可逆），故整条判噪声还须叠加长度与状态关键词双条件；唯凭据
-与派发页回显两族独立硬短路（安全优先，见 is_task_event_noise）。
+与派发页回显两族独立硬短路（安全优先，见 is_task_event_noise）；里程碑
+relay 族（任务号＋紧随动词形态）在长度闸内整条判定（_is_milestone_relay）。
 挂点：rest_ingest 入口丢弃；flush_distill_queue 行丢弃、蒸馏输入滤洗、
 typed 释义丢弃（详见 server.py / lifecycle.py）。
 """
@@ -68,6 +69,35 @@ _KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# 里程碑 relay 族（2026-11-10 批量退役 188 条形态实证）：任务号引导＋紧随
+# 里程碑动词的中英过程通知（merged/已入验证门/被取消/重新打开…），权威记录
+# 本在 agorad events.jsonl，capture 侧整条拒收零信息损失。动词须紧随任务号
+# 且后接边界：「用户原话以任务 ag-x 开头」（无紧随动词，如「任务 ag-x 的
+# 验收命令」）不误拒——原话优先语义锚定。
+_RELAY_LEAD = re.compile(
+    r"^\s*(?:\[[^\]]{1,32}\]\s*)?"        # 可选方括号前缀（如 [agora]）
+    r"(?:task\s+|任务\s*)?"               # 可选引导词 task/任务
+    r"(?:ag|gt|task)-[A-Za-z0-9]{1,32}"   # 任务号
+    r"\s*(?:已|被)?\s*"
+    r"(?:merged|closed|done|blocked|completed|cancelled|canceled|reopened"
+    r"|result|milestones?|answer|完成|关闭|取消|入验证门|重新打开)"
+    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—])", re.IGNORECASE)
+# 无任务号的固定里程碑短语头（agorad 无号 relay 形态）
+_RELAY_PHRASE = re.compile(
+    r"^\s*(?:已入验证门|验证门任务|multiple merged milestones)", re.IGNORECASE)
+
+
+def _is_relay_line(line: str) -> bool:
+    return bool(_RELAY_LEAD.match(line) or _RELAY_PHRASE.match(line))
+
+
+def _is_milestone_relay(content: str) -> bool:
+    """整条里程碑 relay：每个非空行都是 relay 行。置于凭据短路之后、
+    长度闸之内——凭据族语义与优先级不变，>400 宁漏勿误口径不变。"""
+    lines = content.split("\n")
+    return (bool(content.strip())
+            and all(_is_relay_line(ln) or not ln.strip() for ln in lines))
+
 
 def _is_noise_line(line: str) -> bool:
     """行级判定：剥 token/样板后残余为空/纯 #，或 CJK、英文 token 全落词表
@@ -75,6 +105,8 @@ def _is_noise_line(line: str) -> bool:
     防 _PATH 在长无斜线段上的二次回溯拖垮 flush（评审实测 10⁵ 字符 20s）。"""
     if len(line) > 400:
         return False
+    if _is_relay_line(line):  # 里程碑 relay 族行级投影（护 flush 滤洗）
+        return True
     residual = line
     for pat in (_HEX, _SHORT_HEX, _SES, _TASKID, _PATH):
         residual = pat.sub("", residual)
@@ -109,8 +141,8 @@ def _is_credential(content: str) -> bool:
 
 
 def is_task_event_noise(content: str) -> bool:
-    """整条判定：凭据/派发页回显两族硬短路；其余 ≤400 字符且非空行全为
-    噪声行且命中任务状态关键词。
+    """整条判定：凭据/派发页回显两族硬短路；里程碑 relay 族（任务号＋紧随
+    动词形态）；其余 ≤400 字符且非空行全为噪声行且命中任务状态关键词。
 
     凭据族安全优先，不受长度与状态关键词前置条件限制。派发页回显族（前缀表
     前缀开头＋page:/env: 纯路径行＋<500 字符）为 BOOT/任务页三件套回显。
@@ -127,6 +159,8 @@ def is_task_event_noise(content: str) -> bool:
                 return True
     if len(content) > 400 or not content.strip():
         return False
+    if _is_milestone_relay(content):  # 里程碑 relay 族：任务号＋紧随动词形态
+        return True
     if not all(_is_noise_line(ln) for ln in content.split("\n")):
         return False
     return _KEYWORDS.search(content) is not None

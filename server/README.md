@@ -436,6 +436,12 @@ single-entry forget lives in the web UI / `DELETE /api/memories/{uid}`.
   **Adapter-only deployments** (shell adapters, no v2 plugin) have no `/idle`
   sender: queued content stays unsearchable until the batch threshold trips or
   you run `semantic-memory distill` — bounded staleness, by design.
+- **Task-event noise gate** (capture-side, in the write path): task-state
+  receipts are rejected at `/ingest` and stripped from distill input —
+  including agora milestone relays matched by content shape (task-id lead +
+  adjacent milestone verb, e.g. `任务 ag-x merged` / `已入验证门`), which no
+  prefix table alone can cover. Credential filtering always takes precedence;
+  the nightly noise sweep backstops historical leaks (see `MEMORY_NOISE_SWEEP_AT`).
 - **Concurrency contract**: the service's only background work is the
   **distill-flush daemon thread** (spawned by `/idle`, the batch threshold, or
   the CLI), which after each flush evaluates the cloud-consolidation trigger in
