@@ -28,12 +28,12 @@
 
 | 层 | 接口 | 生产映射 |
 |----|------|----------|
-| hot | `recall({query,limit,project})` / `settle({project,session})` / `supersede({uid,by})` / `purge()` / `noiseSweep({dry_run})` / `distill({apply})` | 语义记忆服务 HTTP（`MEMORY_PLUGIN_URL`，默认 8765；`MEMORY_PLUGIN_TOKEN` 鉴权）：`/recall`、`/idle`、`/supersede`、`/api/maintenance/purge`、`/api/maintenance/noise_sweep`；distill 暂为占位 |
+| hot | `recall({query,limit,project})` / `settle({project,session})` / `supersede({uid,by})` / `purge()` / `noiseSweep({dry_run})` / `distill({apply})` | 语义记忆服务 HTTP（`MEMORY_PLUGIN_URL`，默认 8765；`MEMORY_PLUGIN_TOKEN` 鉴权）：`/recall`、`/idle`、`/supersede`、`/api/maintenance/purge`、`/api/maintenance/noise_sweep`；distill 暂为占位。维护面 403 bulk-disabled（服务端未配 `MEMORY_TOKEN` 时 `_bulk_guard` 恒拒）降级 `skipped:bulk_disabled_without_token`，不判失败 |
 | experience | `query({query,store})`（返回 `{experiences,knowledge,knowledge_root}`＝一次 `ae.mjs knowledge query` 跨层调用） / `groom({phase,apply,project,store})` / `supersede({id,by})` / `promote({id,to})` | `skills/agent-experience/bin/ae.mjs`；groom 走部署方 runner：`SM_EXPERIENCE_RUNNER` 值按空白切分，追加 `--phase <p> [--apply] --json`，未配置则无 groom 面 |
 | knowledge | `lint({store})`（返回 `{rc,out}`） | `ae.mjs knowledge lint`（rc1=findings） |
 
 ## 02:00 maintain --apply 计划
 
 - 现状：`maintain` 缺省 report-only；服务内已有每日定点 `noise_sweep_at`（noise 清扫常驻服务线程）。
-- 计划：部署方在 crontab 以 `02:00` 定点跑 `silicon-memory maintain --apply --json`（热层 purge 实清＋noiseSweep 实删；知识层 findings 落报告；经验层待 runner 配置）。上线先以 report-only 跑观察窗口（报告进 `reports` 字段，`errors` 为空即健康），再切 `--apply`。
+- 计划：部署方在 crontab 以 `02:00` 定点跑 `silicon-memory maintain --apply --json`（热层 purge 实清＋noiseSweep 实删；知识层 findings 落报告；经验层待 runner 配置）。**前置：服务端须配 `MEMORY_TOKEN`**——`/api/maintenance/*` 批量维护面在无 token 服务上恒 403（适配器降级 `skipped:bulk_disabled_without_token`，`--apply` 不生效而非报错）。上线先以 report-only 跑观察窗口（报告进 `reports` 字段，`errors` 为空即健康），再切 `--apply`。
 - 本仓不改 dotfiles/crontab——接线归部署方（与治理类 CLI 同边界）。

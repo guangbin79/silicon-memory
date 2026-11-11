@@ -21,7 +21,9 @@ const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire} [opti
   promote   --proposal <path> [--apply] [--experience <id> --to <know ref>]
             dry-run 只做 proposal 校验＋返回 ingest 指令；--apply 需 verdict: approved，调 ae.mjs promote
   retire    --ref hot:<uid>|exp:<id> --by hot:<uid>|exp:<id>
-            同层退役（hot→POST /supersede；exp→ae.mjs supersede）；跨层组合 rc2`;
+            同层退役（hot→POST /supersede；exp→ae.mjs supersede）；跨层组合 rc2
+
+全局旗标 --json：输出恒为 JSON 报告（接受该旗标以对齐文档面，不改变行为）`;
 
 const LAYER_LIMITS = { knowledge: 3, experience: 3, hot: 5 }; // 装配序＝对象序：知识→经验→热
 const SCOPES = ["hot", "experience", "knowledge"];
@@ -79,8 +81,8 @@ async function pushAction(report, action, fn) {
 async function cmdLoad(flags, adapters, report) {
   let hotLimit = LAYER_LIMITS.hot;
   if (flags.limit !== undefined) {
+    if (!/^\d+$/.test(String(flags.limit))) throw new UsageError(`--limit 须为非负整数: ${flags.limit}`);
     hotLimit = Number(flags.limit);
-    if (!Number.isInteger(hotLimit) || hotLimit < 0) throw new UsageError(`--limit 须为非负整数: ${flags.limit}`);
   }
   // 温层（经验＋知识）＝一次 ae.mjs knowledge query 跨层调用
   const warm = await safe(() => adapters.experience.query({ query: flags.query, store: flags.store }));
@@ -260,6 +262,7 @@ export async function runLifecycle(argv, adapters = defaultAdapters()) {
 // ---- 生产适配器（测试注入假适配器替换） ----
 function aeRun(args) {
   const r = spawnSync(process.execPath, [AE, ...args], { encoding: "utf8" });
+  if (r.error) throw new Error(`ae.mjs spawn 失败: ${r.error.message}`);
   if (r.status !== 0)
     throw new Error(`ae.mjs ${args.join(" ")} → rc${r.status}: ${`${r.stdout ?? ""}${r.stderr ?? ""}`.trim().slice(0, 400)}`);
   return r.stdout ?? "";
@@ -277,12 +280,22 @@ export function defaultAdapters() {
     if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${text.slice(0, 200)}`);
     return text ? JSON.parse(text) : {};
   };
+  // 批量维护面（/api/maintenance/*）在服务端未配 MEMORY_TOKEN 时恒 403（_bulk_guard：
+  // 引导走 CLI）——属部署配置态而非操作失败，降级 skipped 让 maintain 不因该层 rc1
+  const bulkPost = async (path, body = {}) => {
+    try { return await httpPost(path, body); }
+    catch (err) {
+      if (/→ 403/.test(err.message) && err.message.includes("bulk maintenance disabled"))
+        return { status: "skipped", reason: "bulk_disabled_without_token" };
+      throw err;
+    }
+  };
   const hot = {
     recall: async ({ query, limit, project }) => (await httpPost("/recall", { query, limit, project })).hits ?? [],
     settle: async () => { await httpPost("/idle"); return { flushed: true }; }, // 生产映射：POST /idle 触发队列 flush
     supersede: async ({ uid, by }) => httpPost("/supersede", { uid, by }),
-    purge: async () => httpPost("/api/maintenance/purge"),
-    noiseSweep: async ({ dry_run }) => httpPost("/api/maintenance/noise_sweep", { dry_run }),
+    purge: async () => bulkPost("/api/maintenance/purge"),
+    noiseSweep: async ({ dry_run }) => bulkPost("/api/maintenance/noise_sweep", { dry_run }),
     // 生产暂无 distill 的 HTTP/CLI 面：适配器占位（后续任务接线），报告 skipped 而非 failed
     distill: async () => ({ status: "skipped", reason: "distill_via_cli_deferred" }),
   };
@@ -293,9 +306,13 @@ export function defaultAdapters() {
     promote: async ({ id, to }) => { aeRun(["promote", id, "--to", to]); return { marked: true }; },
     // groom 走部署方 runner（治理类私有 CLI）：SM_EXPERIENCE_RUNNER 未配置则无此面 → skipped:groom_unavailable
     ...(process.env.SM_EXPERIENCE_RUNNER ? {
-      groom: async ({ phase, apply }) => {
+      groom: async ({ phase, apply, project, store }) => {
         const [cmd, ...pre] = process.env.SM_EXPERIENCE_RUNNER.split(/\s+/).filter(Boolean);
-        const r = spawnSync(cmd, [...pre, "--phase", phase ?? "all", ...(apply ? ["--apply"] : []), "--json"], { encoding: "utf8" });
+        const r = spawnSync(cmd, [...pre, "--phase", phase ?? "all",
+          ...(apply ? ["--apply"] : []),
+          ...(project ? ["--project", project] : []),
+          ...(store ? ["--store", store] : []), "--json"], { encoding: "utf8" });
+        if (r.error) throw new Error(`SM_EXPERIENCE_RUNNER spawn 失败: ${r.error.message}`);
         if (r.status !== 0) throw new Error(`SM_EXPERIENCE_RUNNER rc${r.status}: ${(r.stderr ?? "").trim().slice(0, 200)}`);
         return { status: "done", report: (r.stdout ?? "").trim() };
       },

@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runLifecycle } from "./lifecycle.mjs";
+import { runLifecycle, defaultAdapters } from "./lifecycle.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const K = "/fake/knowledge"; // 假知识根：know ref 归一化用（相对路径去 .md、去 modules/ 前缀）
@@ -106,6 +106,8 @@ test("load：缺必填参数 rc2", async () => {
     ["load", "--project", "/repo", "--session", "s1"],
     ["load", "--query", "q"],
     ["load", "--project", "/repo", "--query", "q"],
+    ["load", "--project", "/repo", "--session", "s1", "--query", "q", "--limit", ""],
+    ["load", "--project", "/repo", "--session", "s1", "--query", "q", "--limit", "0x10"],
   ]) {
     const { rc } = await runLifecycle(argv, fakes().adapters);
     assert.equal(rc, 2, `${argv.join(" ")} 应 rc2`);
@@ -241,9 +243,8 @@ test("promote dry-run：只做 proposal 校验＋返回 ingest 指令，status=c
 test("promote --apply：verdict 非 approved rc2；approved＋--experience/--to → 调 ae promote 记 done", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sm-lc-"));
   const p = join(dir, "proposal.md");
-  writeFileSync(p, "---\nverdict: approved\n---\n三行结论\n");
-  const { calls, adapters } = fakes();
   writeFileSync(p, "verdict: pending\n");
+  const { calls, adapters } = fakes();
   const rRej = await runLifecycle(["promote", "--proposal", p, "--apply", "--experience", "e1", "--to", "know:principles"], adapters);
   assert.equal(rRej.rc, 2, "verdict 非 approved 时 --apply 拒绝");
   writeFileSync(p, "---\nverdict: approved\n---\n");
@@ -287,4 +288,33 @@ test("bin/silicon-memory 根 dispatch 已接线五命令（bash 面不 exec 真�
   assert.ok(sh.includes("lifecycle.mjs"), "lifecycle.mjs 入口缺失");
   assert.ok(sh.includes("memory)"), "旧 memory 子命令须保持兼容");
   assert.ok(sh.includes("knowledge)"), "旧 knowledge 子命令须保持兼容");
+});
+
+test("生产 hot 适配器：无 MEMORY_TOKEN 服务的 /api/maintenance/* 403 bulk-disabled 降级 skipped，其余 403 照抛", async () => {
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push(String(url));
+    const body403 = JSON.stringify({ error: "bulk maintenance disabled without MEMORY_TOKEN; use the CLI" });
+    if (String(url).includes("/api/maintenance/")) return new Response(body403, { status: 403, headers: { "content-type": "application/json" } });
+    if (String(url).includes("/idle")) return new Response(JSON.stringify({ error: "host not allowed" }), { status: 403, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ hits: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const prevUrl = process.env.MEMORY_PLUGIN_URL;
+  process.env.MEMORY_PLUGIN_URL = "http://127.0.0.1:9";
+  try {
+    const hot = defaultAdapters().hot;
+    assert.deepEqual(await hot.noiseSweep({ dry_run: true }), { status: "skipped", reason: "bulk_disabled_without_token" });
+    assert.deepEqual(await hot.purge(), { status: "skipped", reason: "bulk_disabled_without_token" });
+    // recall 不在维护面：正常返回，不触降级
+    assert.deepEqual(await hot.recall({ query: "q", limit: 1, project: "/r" }), []);
+    await assert.rejects(
+      hot.settle(),
+      /POST \/idle → 403/,
+      "非 bulk-disabled 的 403 不应被降级吞掉",
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevUrl === undefined) delete process.env.MEMORY_PLUGIN_URL; else process.env.MEMORY_PLUGIN_URL = prevUrl;
+  }
 });
