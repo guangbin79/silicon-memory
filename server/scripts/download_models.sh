@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 下载蒸馏 + 重排双模型（嵌入模型见 download_model.sh）。
-#   蒸馏: unsloth/Qwen3-1.7B-GGUF Q8_0（非思考小模型，原文消化成 typed facts）
+#   蒸馏: unsloth/Qwen3-4B-Instruct-2507-GGUF Q4_K_M（非思考模型，原文消化成 typed facts）
 #   重排: ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF
 #     重排模型必须用 ggml-org 官方转换：社区镜像常缺 cls/rank 头，
 #     打分全为垃圾（llama.cpp PR #9510/#15824 记录的转换陷阱）。
@@ -32,12 +32,12 @@ else
 fi
 mkdir -p "$MODEL_DIR"
 
-DISTILL_FILE="Qwen3-1.7B-Q8_0.gguf"
+DISTILL_FILE="Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 RERANK_FILE="qwen3-reranker-0.6b-q8_0.gguf"   # 该仓库内文件名全小写
-DISTILL_URL="https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/${DISTILL_FILE}"
+DISTILL_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/${DISTILL_FILE}"
 RERANK_URL="https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/main/${RERANK_FILE}"
 # 与 setup.py 固定常量表同源（2026-10-17 硬化：手动路径补供应链钉验）
-DISTILL_SHA="0becaa825564295d82e9af4d008bca5f8b7f5f73bf1c6a0b58f7c53ef26b47fd"
+DISTILL_SHA="3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
 RERANK_SHA="22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48"
 
 if [ "${1:-}" = "--check" ]; then

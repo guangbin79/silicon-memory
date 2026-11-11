@@ -210,7 +210,7 @@ Service:
 | `MEMORY_RERANK_BUDGET_MS` | `1500` | Total rerank budget per recall (incl. model load); exceeded = fail-open to RRF order. 1500 since 2026-10-29: real 20-candidate warm rerank measures ~490ms, 500 was a coin flip |
 
 **Cloud channel privacy.** Configuring `MEMORY_CLOUD_BASE_URL` + `MEMORY_CLOUD_API_KEY` + `MEMORY_CLOUD_MODEL` (with `MEMORY_CLOUD_ENABLED` ≠ `0`, the default) means **memory content is sent to that endpoint** — a deterministically pre-filtered set of near-duplicate cluster members and their immediate neighborhood, never the whole store. The cloud returns only a **metadata operations plan** (`supersede`/`touch` by uid): no cloud-generated content is ever written to the store, and a plan containing anything resembling an injection pattern is dropped wholesale. The daily caps (`MEMORY_CLOUD_DAILY_MAX_CALLS` / `MEMORY_CLOUD_DAILY_MAX_TOKENS`) are in-process counters — **service restart resets them**. `MEMORY_CLOUD_ENABLED=0` is the kill switch and wins over everything.
-| `MEMORY_DISTILL_MODEL` | empty | Distiller GGUF (Qwen3-1.7B, non-thinking); empty = distill off (raw text stored on flush) |
+| `MEMORY_DISTILL_MODEL` | empty | Distiller GGUF (Qwen3-4B-Instruct-2507, non-thinking); empty = distill off (raw text stored on flush) |
 | `MEMORY_DISTILL_BATCH` | `20` | Flush the distill queue when pending ≥ N; `0` = disable the batch trigger |
 | `MEMORY_CLOUD_ENABLED` | `1` | Cloud-consolidation kill switch: `=0` forces off even with `MEMORY_CLOUD_*` set |
 | `MEMORY_CLOUD_BASE_URL` | empty | OpenAI-compatible `/chat/completions` endpoint; empty = cloud off |

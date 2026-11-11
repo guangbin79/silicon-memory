@@ -28,8 +28,8 @@ from .paths import MigrationRefused, migrate_legacy, resolve_data_dir
 # URL 三源：download_models.sh（蒸馏/重排）+ download_model.sh（嵌入）。
 EMBED_URL = ("https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/"
              "Qwen3-Embedding-0.6B-Q8_0.gguf")
-DISTILL_URL = ("https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/"
-               "Qwen3-1.7B-Q8_0.gguf")
+DISTILL_URL = ("https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/"
+               "main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
 RERANK_URL = ("https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/"
               "resolve/main/qwen3-reranker-0.6b-q8_0.gguf")
 
@@ -49,9 +49,9 @@ MODELS: dict[str, ModelSpec] = {
         "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
         639_150_592),
     "distill": ModelSpec(
-        "distill", DISTILL_URL, "Qwen3-1.7B-Q8_0.gguf",
-        "0becaa825564295d82e9af4d008bca5f8b7f5f73bf1c6a0b58f7c53ef26b47fd",
-        1_834_426_944),
+        "distill", DISTILL_URL, "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+        2_497_281_120),
     "rerank": ModelSpec(
         "rerank", RERANK_URL, "qwen3-reranker-0.6b-q8_0.gguf",
         "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",

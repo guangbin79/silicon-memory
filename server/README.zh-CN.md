@@ -180,7 +180,7 @@ wal_checkpoint，逐文件 sha256 校验，旧服务还在跑则拒迁，旧目�
 **云通道隐私。** 配置 `MEMORY_CLOUD_BASE_URL` + `MEMORY_CLOUD_API_KEY` + `MEMORY_CLOUD_MODEL`（且 `MEMORY_CLOUD_ENABLED` ≠ `0`，默认）即意味着**记忆内容会发送至该端点**——经确定性预过滤的近邻簇成员及其直接邻域，绝非全库。云端只返回**元数据操作计划**（按 uid 的 `supersede`/`touch`）：云生成的任何内容都不入库，计划中出现疑似注入模式即整批丢弃。每日硬顶（`MEMORY_CLOUD_DAILY_MAX_CALLS` / `MEMORY_CLOUD_DAILY_MAX_TOKENS`）是进程内存计数——**服务重启即重置**。`MEMORY_CLOUD_ENABLED=0` 是优先级最高的 kill switch。
 | `MEMORY_RERANK_CANDIDATES` | `20` | RRF 融合后送入重排的候选条数 |
 | `MEMORY_RERANK_BUDGET_MS` | `1500` | 单次召回的重排总预算（含模型加载）；超时整体 fail-open 回 RRF 序。2026-10-29 起 1500：实测真实 20 候选热态 ~490ms，500 纯赌运气 |
-| `MEMORY_DISTILL_MODEL` | 空 | 蒸馏 GGUF（Qwen3-1.7B 非思考）；空 = 蒸馏关闭（flush 时原文直存） |
+| `MEMORY_DISTILL_MODEL` | 空 | 蒸馏 GGUF（Qwen3-4B-Instruct-2507 非思考）；空 = 蒸馏关闭（flush 时原文直存） |
 | `MEMORY_DISTILL_BATCH` | `20` | 队列 pending ≥ N 触发 flush；`0` = 关闭批量触发 |
 | `MEMORY_CLOUD_ENABLED` | `1` | 云整合 kill switch：`=0` 强制关闭（即使配置了 `MEMORY_CLOUD_*`） |
 | `MEMORY_CLOUD_BASE_URL` | 空 | OpenAI 兼容 `/chat/completions` 端点；空 = 云通道关闭 |
