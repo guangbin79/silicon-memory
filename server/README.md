@@ -80,6 +80,15 @@ task-relevant context**.
 | 1 — pip user install | `pip install --user .` | the `semantic-memory` console script, still zero dependencies |
 | 2 — vector / full stack | `pip install ".[vector]"` or `pip install ".[embed]"` | +numpy (vector leg) / +llama-cpp-python (local GGUF inference) |
 
+> **Tier-2 wheel portability warning.** The prebuilt cu124 wheels of
+> llama-cpp-python (the abetlen CUDA wheel index) do **not** travel between
+> machines: the CPU backend inside is compiled for the build host's native ISA
+> (AVX-512), so on a CPU without AVX-512 (e.g. i7-14700F) the first model load
+> dies with `SIGILL` (`objdump -d libggml-cpu.so | grep -c zmm` returning >0
+> confirms the baked-in AVX-512). Prebuilt wheels are same-ISA-only — on any
+> other machine build from source on the target host (see *GPU source build*
+> under "Vector channel").
+
 Models for tier 2 are optional per channel: `bash scripts/download_model.sh`
 (embedding → `MEMORY_MODEL_PATH`) and `bash scripts/download_models.sh` (distiller +
 reranker → `MEMORY_DISTILL_MODEL` / `MEMORY_RERANK_MODEL`) — or skip the manual steps
@@ -476,6 +485,40 @@ embed → **nvidia-smi PID verification** (detects silent CPU fallback) → any 
 rebuilds on CPU with a log line; a runtime GPU embed failure (e.g. OOM) rebuilds on
 CPU and retries once. On machines without NVIDIA, set `MEMORY_DEVICE=cpu` to skip the
 GPU attempt. `/api/stats` / `/health` report the actual device in use.
+
+### GPU source build (sm_120/Blackwell) & proof of residency
+
+Prebuilt CUDA wheels are same-ISA-only (warning at the install table). For
+Blackwell (RTX 5070, sm_120) — or any host whose ISA differs from the wheel's
+build machine — build llama-cpp-python from source **on the target machine**.
+Verified recipe, evidence dated 2026-11-11 (driver 595.99.02, CUDA 13.2):
+
+- nvcc **≥ 12.8** is the floor for sm_120 (first toolchain release that knows
+  Blackwell), and ask for native SASS, not PTX fallback:
+  `CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120" pip install --no-binary=llama-cpp-python ".[embed]"`
+- pip `nvidia-cuda-nvcc-cu12` 12.9 no longer ships the nvcc driver itself (only
+  ptxas/nvvm/crt) — take the real compiler from the NVIDIA debs: `cuda-nvcc`,
+  `cuda-crt`, `cuda-nvvm`, `cuda-cudart-dev`, `cuda-cudart` (five packages)
+- half-configured deb installs get rolled back by system cleanup timers —
+  `dpkg -x` the debs into a user directory and assemble a pure-user toolkit
+  (no root, no dpkg state)
+- pip `nvidia-cuda-cccl-cu12` fills in the missing `nv/target` headers; pip
+  nvidia runtime libs install only versioned names (`*.so.12`) — the
+  unversioned symlinks do not exist, create them pointing at the `.12` files
+- CMake variable names that count: `CUDA_CUDART_LIBRARY` /
+  `CUDA_CUBLAS_LIBRARY` (`CUDA_CUBLAS` is a stale name nothing consumes — an
+  unused `-D` variable makes scikit-build-core fail at the Generate stage);
+  pass `CMAKE_CUDA_COMPILER` explicitly and keep nvcc on `PATH` (double
+  insurance)
+- `FindCUDAToolkit` realpaths the nvcc it finds: the toolkit root follows the
+  real binary's directory, silently ignoring `CUDAToolkit_ROOT`
+
+**Proof of residency (the acceptance bar).** A `ggml_cuda_init` log line only
+proves the CUDA stack loads. The hard evidence is `load_tensors` reporting
+tensors `assigned to device CUDA0` (all layers) **plus** resident VRAM for the
+process in `nvidia-smi`. RTX 5070, 2026-11-11: Qwen3-Embedding-0.6B Q8_0 runs
+all layers on the GPU (~2 GB VRAM) with `MEMORY_DEVICE=cuda` — the
+deterministic fallback chain above never trips.
 
 ## Ranking post-processing (measured, not guessed)
 
