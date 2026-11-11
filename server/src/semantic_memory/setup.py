@@ -58,7 +58,7 @@ MODELS: dict[str, ModelSpec] = {
         639_153_184),
 }
 _PROFILE_MODELS = {"full": ("embed", "distill", "rerank"), "embed": ("embed",), "bm25": ()}
-MIN_FREE_BYTES = 3 * 1024**3   # 目标盘余量硬门槛（计划任务 8）
+MIN_FREE_BYTES = 4 * 1024**3   # 目标盘余量硬门槛（计划任务 8；2026-11-11 蒸馏换 4B 后 full 档合计≈3.52G，3G 门槛被越过故重校）
 _CHUNK = 1 << 20
 
 
@@ -224,7 +224,7 @@ def run_setup(argv: list[str] | None = None, *, client=None, out=sys.stdout) -> 
     if missing:
         free = shutil.disk_usage(data_dir).free
         if free < MIN_FREE_BYTES:
-            print(f"setup: 目标盘余量不足（{free / 1024**3:.1f}G < 3G）: {data_dir}",
+            print(f"setup: 目标盘余量不足（{free / 1024**3:.1f}G < 4G）: {data_dir}",
                   file=sys.stderr)
             return 1
         if not ns.yes and sys.stdin.isatty():
