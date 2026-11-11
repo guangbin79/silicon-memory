@@ -224,7 +224,7 @@ def run_setup(argv: list[str] | None = None, *, client=None, out=sys.stdout) -> 
     if missing:
         free = shutil.disk_usage(data_dir).free
         if free < MIN_FREE_BYTES:
-            print(f"setup: 目标盘余量不足（{free / 1024**3:.1f}G < 4G）: {data_dir}",
+            print(f"setup: 目标盘余量不足（{free / 1024**3:.1f}G < {MIN_FREE_BYTES / 1024**3:.0f}G）: {data_dir}",
                   file=sys.stderr)
             return 1
         if not ns.yes and sys.stdin.isatty():
