@@ -59,6 +59,9 @@ async function safe(fn) {
   catch (err) { return { ok: false, error: String(err?.message ?? err) }; }
 }
 
+// 适配器载荷归一（B1：注入面形状不设防会把 TypeError 释放到入口，丢整份 JSON 报告）
+const asList = (v) => (Array.isArray(v) ? v : []);
+
 // know ref：kroot 相对路径去 .md、去 modules/ 前缀（kroot 未知时退 basename）
 function knowRef(kroot, file) {
   let rel = kroot ? relative(kroot, file) : basename(file);
@@ -84,10 +87,18 @@ async function cmdLoad(flags, adapters, report) {
     if (!/^\d+$/.test(String(flags.limit))) throw new UsageError(`--limit 须为非负整数: ${flags.limit}`);
     hotLimit = Number(flags.limit);
   }
-  // 温层（经验＋知识）＝一次 ae.mjs knowledge query 跨层调用
-  const warm = await safe(() => adapters.experience.query({ query: flags.query, store: flags.store }));
+  // 温层（经验＋知识）＝一次 ae.mjs knowledge query 跨层调用；载荷形状归一后仅
+  // 字段级异常可漏出——仍收进 safe，单层失败不阻断他层（B1）
+  const warm = await safe(() => {
+    const r = adapters.experience.query({ query: flags.query, store: flags.store });
+    return Promise.resolve(r).then((v) => {
+      const knowledge = asList(v?.knowledge).filter((h) => typeof h?.file === "string");
+      const experiences = asList(v?.experiences).filter((h) => typeof h?.file === "string");
+      return { knowledge, experiences, knowledge_root: v?.knowledge_root ?? null };
+    });
+  });
   if (warm.ok) {
-    const { knowledge = [], experiences = [], knowledge_root } = warm.value ?? {};
+    const { knowledge, experiences, knowledge_root } = warm.value;
     report.actions.push({ layer: "knowledge", op: "query", status: "done", hits: knowledge.length });
     for (const h of knowledge.slice(0, LAYER_LIMITS.knowledge))
       report.candidates.push({ layer: "knowledge", ref: knowRef(knowledge_root, h.file), title: h.title ?? null });
@@ -101,9 +112,12 @@ async function cmdLoad(flags, adapters, report) {
       report.errors.push(`${layer}:query: ${warm.error}`);
     }
   }
-  const hot = await safe(() => adapters.hot.recall({ query: flags.query, limit: hotLimit, project: flags.project }));
+  const hot = await safe(() => {
+    const r = adapters.hot.recall({ query: flags.query, limit: hotLimit, project: flags.project });
+    return Promise.resolve(r).then((v) => asList(v));
+  });
   if (hot.ok) {
-    const hits = hot.value ?? [];
+    const hits = hot.value;
     report.actions.push({ layer: "hot", op: "recall", status: "done", hits: hits.length });
     for (const h of hits.slice(0, hotLimit))
       report.candidates.push({ layer: "hot", ref: `hot:${h.uid}`, kind: h.kind ?? null, content: h.content ?? null });
@@ -184,9 +198,12 @@ const INGEST_RUNBOOK = `project-compound ingest（agent 过程，无脚本入口
   提案门槛: 3 行结论＋≥2 条逐字证据；promote --apply 只写温层 promoted_to 标记，
   知识页写入归 ingest 过程（本命令不得自动写知识页）`;
 
+// verdict 取全文「最后一个」行首声明（B2：首个匹配会被提案内示例块/模板压过有效裁决行）；
+// frontmatter 优先语义不变——标准提案只有一处声明，多出处时最新裁决胜出
 function verdictOf(text) {
-  const m = text.match(/(?:^|\n)verdict:\s*([A-Za-z0-9_-]+)/);
-  return m ? m[1] : null;
+  let verdict = null;
+  for (const m of text.matchAll(/(?:^|\n)verdict:\s*([A-Za-z0-9_-]+)/g)) verdict = m[1];
+  return verdict;
 }
 
 async function cmdPromote(flags, adapters, report) {
@@ -268,6 +285,15 @@ function aeRun(args) {
   return r.stdout ?? "";
 }
 
+// lint 后端结果分类（B3）：spawn 失败或输出不像 ae.mjs knowledge lint（其末行恒含
+// "knowledge lint:"）＝后端没跑起来，抛错走 failed/rc1——不得折叠成 findings 假装健康
+export function lintOutcome(r) {
+  if (r?.error) throw new Error(`knowledge lint spawn 失败: ${r.error.message}`);
+  const out = `${r?.stdout ?? ""}${r?.stderr ?? ""}`;
+  if (!out.includes("knowledge lint:")) throw new Error(`knowledge lint 后端输出异常（rc${r?.status}）: ${out.trim().slice(0, 200)}`);
+  return { rc: r.status ?? 1, out };
+}
+
 export function defaultAdapters() {
   const base = (process.env.MEMORY_PLUGIN_URL ?? "http://127.0.0.1:8765").replace(/\/$/, "");
   const headers = {
@@ -319,10 +345,7 @@ export function defaultAdapters() {
     } : {}),
   };
   const knowledge = {
-    lint: async () => {
-      const r = spawnSync(process.execPath, [AE, "knowledge", "lint"], { encoding: "utf8" });
-      return { rc: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
-    },
+    lint: async () => lintOutcome(spawnSync(process.execPath, [AE, "knowledge", "lint"], { encoding: "utf8" })),
   };
   return { hot, experience, knowledge };
 }
@@ -334,6 +357,10 @@ if (isMain) {
     if (rc === 2 && report.errors.length) process.stderr.write(report.errors.join("\n") + "\n");
     process.exitCode = rc;
   }).catch((err) => {
+    // 契约兜底（B1）：意外异常也必须给出 JSON 报告，不许只剩 stderr 一行
+    const report = newReport(null);
+    report.errors.push(String(err?.message ?? err));
+    process.stdout.write(JSON.stringify(report) + "\n");
     process.stderr.write(`lifecycle: ${err?.message ?? err}\n`);
     process.exitCode = 1;
   });

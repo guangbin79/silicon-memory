@@ -18,6 +18,11 @@ LOG=$(mktemp /tmp/sm-itest-XXXXXX.log)
 export MEMORY_DISTILL_MODEL=
 export MEMORY_PLUGIN_TOOL_CAPTURE=bash   # execute.after 白名单默认关闭，test §5 依赖 bash 捕获
 export MEMORY_DISTILL_BATCH=0            # 关批量 flush（pending≥20 自动排空会掏空 distill_queue，§4d 计数 flaky）；队列只经 /idle flush
+# 嵌入通道钉 BM25-only（ag-f51f40 verify 实证）：llama_cpp wheel 不可移植（源码构建于
+# sm_120 机器，本机 CPU 内核 SIGILL/CUDA 上下文 ValueError）——向量面可用性随宿主机漂移，
+# 插件契约断言不依赖向量通道；与上面 MEMORY_DISTILL_MODEL= 空串禁用同款模式
+export MEMORY_MODEL_PATH=
+export MEMORY_ALLOW_BM25_ONLY=1
 MEMORY_PORT=$PORT MEMORY_DB_PATH="$DB" "$ROOT/venv/bin/semantic-memory" serve >"$LOG" 2>&1 &
 PID=$!
 trap 'kill $PID 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm "$DB.server.json" "$LOG"' EXIT

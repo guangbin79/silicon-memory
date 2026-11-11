@@ -38,8 +38,10 @@ const BASE = (process.env.MEMORY_PLUGIN_URL ?? "http://127.0.0.1:8766").replace(
 // 项目夹具根因修正（W 写侧门）：固定 /tmp/mockproj 非 git 无 origin——自动捕获被
 // unresolvable_project 拒收、显式 remember 降级全局，项目召回必空。改为 mkdtemp
 // 临时 git 仓＋独立 origin（各项目 origin 互异，避免归一键撞桶串扰）。
-// 归一键＝origin 去 host（*_KEY，供 /api/memories 原样匹配）；recall/ingest/ctx 仍传
-// 原路径，由服务端 resolve_project 归一。测试后残留＝OS tmp，无需手工清理。
+// 归一键＝normalize_git_url：剥 scheme/user@/.git 后缀并小写 host（键保留 host，如
+// https://example.com/mock/repo.git → example.com/mock/repo）；*_KEY 供 /api/memories
+// 原样匹配（该 API 不做归一）；recall/ingest/ctx 仍传原路径，由服务端 resolve_project 归一。
+// 测试后残留＝OS tmp，无需手工清理。
 function mockRepo(name) {
   const dir = mkdtempSync(join(tmpdir(), `mockproj-${name}-`));
   execFileSync("git", ["-C", dir, "init", "-q"]);

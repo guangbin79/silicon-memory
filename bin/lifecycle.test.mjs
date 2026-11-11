@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runLifecycle, defaultAdapters } from "./lifecycle.mjs";
+import { runLifecycle, defaultAdapters, lintOutcome } from "./lifecycle.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const K = "/fake/knowledge"; // 假知识根：know ref 归一化用（相对路径去 .md、去 modules/ 前缀）
@@ -280,6 +280,56 @@ test("retire：同层各走各适配器；跨层组合 rc2；失败 rc1", async 
   const rFail = await runLifecycle(["retire", "--ref", "hot:u1", "--by", "hot:u2"], fail.adapters);
   assert.equal(rFail.rc, 1);
   assert.equal(rFail.report.actions[0].status, "failed");
+});
+
+test("load：适配器载荷形状不设防（null 列表/缺 file/非数组 hits）→ 不抛 TypeError、报告完整、他层照常（B1）", async () => {
+  const badWarm = fakes({ query: () => ({ knowledge: null }) });
+  const r1 = await runLifecycle(["load", "--project", "/repo", "--session", "s1", "--query", "q"], badWarm.adapters);
+  assert.equal(r1.rc, 0, "null 载荷按空结果降级，不判层失败");
+  assert.ok(r1.report.candidates.some((c) => c.layer === "hot"), "温层空形状不阻断热层");
+  assert.deepEqual(r1.report.actions.filter((a) => a.op === "query").map((a) => a.status), ["done", "done"]);
+
+  const badHot = fakes({ recall: () => ({ hits: null }) });
+  const r2 = await runLifecycle(["load", "--project", "/repo", "--session", "s1", "--query", "q"], badHot.adapters);
+  assert.equal(r2.rc, 0, "热层非数组载荷按空结果降级");
+  assert.equal(r2.report.actions.find((a) => a.layer === "hot").hits, 0);
+  assert.ok(r2.report.candidates.some((c) => c.layer === "knowledge"), "热层坏形状不阻断温层");
+
+  const badFile = fakes({ query: () => ({ knowledge: [{ title: "无 file 字段" }], experiences: [] }) });
+  const r3 = await runLifecycle(["load", "--project", "/repo", "--session", "s1", "--query", "q"], badFile.adapters);
+  assert.equal(r3.rc, 0, "缺 file 字段的命中只作废自身，不判层失败");
+  assert.equal(r3.report.candidates.filter((c) => c.layer === "knowledge").length, 0);
+});
+
+test("promote verdict：全文末次声明胜出——示例块 approved 压不过有效 rejected（B2）", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sm-lc-"));
+  const p = join(dir, "proposal.md");
+  const { adapters } = fakes();
+  writeFileSync(p, "提案模板示例：\nverdict: approved\n---\n正文有效裁决：\nverdict: rejected\n");
+  const r1 = await runLifecycle(["promote", "--proposal", p, "--apply", "--experience", "e1", "--to", "know:x"], adapters);
+  assert.equal(r1.rc, 2, "末次声明 rejected 时示例块 approved 不得放行");
+  assert.equal(r1.report.actions.length, 0, "rc2 前置拒绝不应产生 action");
+  // 修订历史：pending → approved（末次胜出）应放行
+  writeFileSync(p, "verdict: pending\n结论一\nverdict: approved\n");
+  const r2 = await runLifecycle(["promote", "--proposal", p, "--apply", "--experience", "e1", "--to", "know:x"], adapters);
+  assert.equal(r2.rc, 0, "末次 approved 应放行（修订历史语义）");
+  assert.equal(r2.report.actions[0].status, "done");
+  // dry-run 回显同样取末次
+  writeFileSync(p, "verdict: approved\nverdict: rejected\n");
+  const r3 = await runLifecycle(["promote", "--proposal", p], adapters);
+  assert.equal(r3.report.actions[0].verdict, "rejected");
+});
+
+test("lintOutcome：spawn 失败/输出非 lint 签名 → 抛错（failed/rc1 可达），正常输出透传（B3）", async () => {
+  assert.throws(() => lintOutcome({ error: new Error("ENOENT") }), /spawn 失败/);
+  assert.throws(
+    () => lintOutcome({ status: 1, stdout: "node:internal/modules/cjs/loader:1568 Cannot find module" }),
+    /后端输出异常/,
+    "ae.mjs 缺失的 node 崩溃输出不得折叠成 findings",
+  );
+  const ok = lintOutcome({ status: 1, stdout: "INDEX_GAP modules/x.md\nknowledge lint: 1 findings（…）\n" });
+  assert.equal(ok.rc, 1);
+  assert.ok(ok.out.includes("INDEX_GAP"));
 });
 
 test("bin/silicon-memory 根 dispatch 已接线五命令（bash 面不 exec 真适配器，静态断言）", () => {
