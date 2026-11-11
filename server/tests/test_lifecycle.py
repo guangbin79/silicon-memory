@@ -745,3 +745,19 @@ def test_cli_noise_sweep(tmp_path):
     deleted = s3.conn.execute("SELECT deleted FROM memories WHERE uid=?", (uid,)).fetchone()[0]
     s3.close()
     assert deleted == 1, "实删形态对齐 lifecycle.noise_sweep（确定性命中→软删）"
+
+
+def test_cli_unknown_command_refused(tmp_path):
+    """未知命令 rc2 拒绝且不落穿 serve（评审 B1：stale CLI 维护调用不得变成服务启动）。"""
+    import os
+    import subprocess
+    import sys
+    env = {**os.environ, "MEMORY_DB_PATH": str(tmp_path / "guard.db"),
+           "MEMORY_MODEL_PATH": "",
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    proc = subprocess.run(
+        [sys.executable, "-m", "semantic_memory.server", "bogus-cmd"],
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+    assert proc.returncode == 2
+    assert "未知命令" in proc.stderr and "MEMORY_LISTENING" not in proc.stdout

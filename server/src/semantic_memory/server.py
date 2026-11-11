@@ -1113,6 +1113,14 @@ _USAGE = """usage: semantic-memory [-h] [command]
 管理子命令：setup / purge / backfill / eval / golden / consolidate / distill / sweep / supersede / noise-sweep（详见各 --help）。
 """
 
+# 未知命令拒绝（评审 B1）：main() 的 if 链对未知 cmd 会落穿到 serve 启动门——
+# stale CLI（如解析链指向的 venv 副本尚无新子命令）会把维护调用变成一次完整
+# 服务启动（端口占用/挂死/副作用），白名单外一律 rc2 干净失败
+_KNOWN_COMMANDS = frozenset({
+    "serve", "setup", "purge", "backfill", "eval", "golden",
+    "consolidate", "distill", "sweep", "supersede", "noise-sweep",
+})
+
 
 def _setup_logging() -> None:
     """stderr 之外强制落盘：autostart spawn 用 stdio:"ignore" 丢弃 stderr——
@@ -1137,6 +1145,9 @@ def main() -> None:
     if cmd == "serve" and ("--help" in args or "-h" in args):
         print(_USAGE)
         return
+    if cmd not in _KNOWN_COMMANDS:
+        print(f"semantic-memory: 未知命令 {cmd!r}（可用命令见 --help）", file=sys.stderr)
+        raise SystemExit(2)
 
     # ---- 管理子命令（维护面：LLM 够不到的地方）----
     if cmd == "setup":  # 安装面（任务 8）：探测→校验下载→写 config→冒烟；零核心单例成本
