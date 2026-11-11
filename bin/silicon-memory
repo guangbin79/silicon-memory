@@ -19,6 +19,7 @@ silicon-memory — 统一记忆 CLI
 
 Memory:      silicon-memory memory {capture|id|query|supersede|promote|validate|index|cards|score|verify|lint <store>}
 Knowledge:   silicon-memory knowledge {query|ingest|lint}
+Lifecycle:   silicon-memory {load|settle|maintain|promote|retire}（统一记忆根命令控制面，见 skills/unified-memory/references/lifecycle.md）
 
 治理类（practice/policy/evolution/groom/mount/constitution）属部署方私有 CLI，不在本仓。
 HELP
@@ -28,6 +29,8 @@ cmd="${1:-}"
 if [ -z "$cmd" ]; then usage; exit 0; fi
 if [ "$#" -gt 0 ]; then shift; fi
 case "$cmd" in
+  load|settle|maintain|promote|retire)
+    exec node "$R/bin/lifecycle.mjs" "$cmd" "$@" ;;
   memory)
     sub="${1:-help}"
     if [ "$#" -gt 0 ]; then shift; fi

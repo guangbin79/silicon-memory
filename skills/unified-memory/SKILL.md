@@ -42,6 +42,10 @@ description: |
 
 路径解析：knowledge root＝`$AE_KNOWLEDGE_PATH` > 自 cwd 向上找 `docs/agents/knowledge`（与 project-compound 的 `./docs` 相对语义一致）；经验 store 覆盖沿用 `--store`。
 
+## Lifecycle 根命令
+
+`silicon-memory {load|settle|maintain|promote|retire}`——生命周期控制面：三层适配器（热 HTTP／经验 ae.mjs／知识 ae.mjs）编排，统一 JSON 报告（单层失败不阻断；failed→rc1、参数错→rc2、findings/candidate→rc0）。命令语义、适配器边界与 02:00 maintain --apply 计划见 `references/lifecycle.md`。
+
 `knowledge query`（语义层）不在盲视作用域内——盲视仅覆盖 `memory query --scope=verifier`；同 UID 下 verifier 文件系统可达性为记录在案的天花板（UID 分离 out of scope）。
 
 ## Lint 分工（机械面 vs 语义面）
