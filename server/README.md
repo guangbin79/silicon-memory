@@ -36,7 +36,8 @@ forever. Compaction makes the window fit; the sidecar makes compression safe.
 │    spliced just before the last user message (sub-final) │
 │    + a frozen head block of prefs/decisions per session  │
 │    byte-frozen in event.system (prefix-cache friendly)   │
-│  session.idle → POST /idle (drains the distill queue)    │
+│  session.idle → POST /api/memory/settle (drains the    │
+│    distill queue; legacy /idle alias)                  │
 │  pre-compaction → /ingest (discarded ≠ lost)             │
 │  chat.message "remember ..." / auto-capture → /ingest    │
 │  tool execute.after (whitelist) → /ingest                │
@@ -44,7 +45,8 @@ forever. Compaction makes the window fit; the sidecar makes compression safe.
                        │ HTTP 127.0.0.1:8765 (optional Bearer token)
 ┌──────────────────────▼───────────────────────────────────┐
 │  semantic-memory service (single process, stdlib http)   │
-│  REST API: /recall /ingest /idle /health + web UI        │
+│  REST API: /recall /ingest /health + lifecycle pairs    │
+│    (/api/memory/settle|retire, legacy /idle|/supersede) │
 │  opencode native tools: memory_store / memory_recall     │
 │  SQLite + FTS5(porter|trigram) + vector BLOBs, RRF(k=60) │
 │                                                          │
@@ -223,7 +225,7 @@ Service:
 | `MEMORY_TTL_INJECTION_DAYS` | `90` | TTL for injection telemetry; `0` = never expire |
 | `MEMORY_TTL_STALE_DAYS` | `180` | Usage-based retention: `fact`/`artifact` un-recalled this many days are soft-deleted at the next purge (NULL → created_at; `preference`/`decision` exempt); `0` = off |
 | `MEMORY_MAINTENANCE_ON_START` | `1` | Run the maintenance routine at service startup |
-| `MEMORY_NOISE_SWEEP_AT` | `03:30` | Daily local time (`HH:MM`) for the resident noise-sweep thread; invalid values fail service startup |
+| `MEMORY_NOISE_SWEEP_AT` | `03:30` | Daily local time (`HH:MM`) for the resident noise-sweep thread; invalid values fail service startup. `off` (env or config.toml `noise_sweep_at="off"`) disables the built-in thread — set it when an external scheduler (e.g. `silicon-memory maintain --apply` at 02:00) owns the sweep; standalone default stays 03:30 |
 | `MEMORY_DEDUP_SIM` | `0.98` | Cosine threshold for vector near-duplicate ingest dedup |
 | `MEMORY_ALLOW_BM25_ONLY` | `0` | Tier-0 escape hatch: `=1` always allows BM25-only startup even when `config.toml` is present |
 
@@ -378,9 +380,11 @@ hook-facing `/recall` `/ingest`, same auth rule: Bearer when `MEMORY_TOKEN` is s
 | `GET /api/injections?harness=&project=&limit=&offset=` | Injection telemetry, newest first |
 | `GET /api/graph?uid=&cross_sim=` | One entry's 1-hop graph edges (supersedes / co-injection / synonym, traversable observability) |
 | `POST /inject/report` | Injection telemetry report (plugin/adapter channel, append-only) |
-| `POST /idle` | Notify idle: flush the distill queue in a daemon thread (204 immediately, auth = /ingest) |
+| `POST /api/memory/settle` | Unified lifecycle settle: flush the distill queue in a daemon thread (204 immediately, zero LLM on the hot path, auth = /ingest); optional body `{project, session_id}` is accepted (flush is store-wide today). Legacy `POST /idle` stays as a compatible alias |
+| `POST /idle` | *Compatibility alias* of `POST /api/memory/settle` — identical semantics |
 | `DELETE /api/memories/{uid}` | Single-entry forget (same trust level as the CLI) |
-| `POST /supersede` | Manual retire: body `{"uid","by"}` — mark uid superseded by by, zero physical delete (recall stops returning it) → 200 `{ok,uid,superseded_by}`; 400 missing/unknown `by` or `uid==by`, 404 unknown uid, 409 already deleted/superseded (idempotent, first pointer never overwritten); CLI twin: `semantic-memory supersede <old> --by NEW` |
+| `POST /api/memory/retire` | Unified lifecycle retire — same handler and status codes as legacy `POST /supersede` (body `{"uid","by"}` → 200 `{ok,uid,superseded_by}`; 400/404/409 as below); CLI twin: `semantic-memory supersede <old> --by NEW` |
+| `POST /supersede` | *Compatibility alias* of `POST /api/memory/retire`: body `{"uid","by"}` — mark uid superseded by by, zero physical delete (recall stops returning it) → 200 `{ok,uid,superseded_by}`; 400 missing/unknown `by` or `uid==by`, 404 unknown uid, 409 already deleted/superseded (idempotent, first pointer never overwritten) |
 | `POST /api/maintenance/purge` | Bulk maintenance (soft-delete purge + TTL + VACUUM) |
 | `POST /api/maintenance/backfill` | Vector backfill for vectorless entries |
 | `POST /api/maintenance/noise_sweep` | Nightly noise sweep (manual trigger): body `{"dry_run": true}` for a zero-write report; deterministic predicate hits are soft-forgotten, weak-signal suspects are only reported |
@@ -436,15 +440,17 @@ single-entry forget lives in the web UI / `DELETE /api/memories/{uid}`.
   — zero LLM on the hot path; explicit `remember` / `tool` captures keep storing
   directly. Flush triggers (three, and that is the whole list — **no startup
   drain, no cron**): queue pending ≥ `MEMORY_DISTILL_BATCH` at the next
-  `/ingest`, a `POST /idle` notification, or `semantic-memory distill`. The flush runs
+  `/ingest`, a `POST /api/memory/settle` notification (legacy `/idle` alias),
+  or `semantic-memory distill`. The flush runs
   in a daemon thread on its own short-lived SQLite connection (≤5-row commits,
   one flush at a time per process); Distiller output is stored as typed facts
   (`scope=global` → `project` NULL, session id preserved). Distiller off,
   failing, or unparseable → the raw text is stored as-is (`stored_raw`) —
   never worse than pre-distill behavior; vectors reconcile via `backfill`.
-  **Adapter-only deployments** (shell adapters, no v2 plugin) have no `/idle`
-  sender: queued content stays unsearchable until the batch threshold trips or
-  you run `semantic-memory distill` — bounded staleness, by design.
+  **Adapter-only deployments** (shell adapters, no v2 plugin) have no
+  `/api/memory/settle` sender: queued content stays unsearchable until the
+  batch threshold trips or you run `semantic-memory distill` — bounded
+  staleness, by design.
 - **Task-event noise gate** (capture-side, in the write path): task-state
   receipts are rejected at `/ingest` and stripped from distill input —
   including agora milestone relays matched by content shape (task-id lead +
@@ -452,10 +458,12 @@ single-entry forget lives in the web UI / `DELETE /api/memories/{uid}`.
   prefix table alone can cover. Credential filtering always takes precedence;
   the nightly noise sweep backstops historical leaks (see `MEMORY_NOISE_SWEEP_AT`).
 - **Concurrency contract**: the service's only background work is the
-  **distill-flush daemon thread** (spawned by `/idle`, the batch threshold, or
-  the CLI), which after each flush evaluates the cloud-consolidation trigger in
-  the same thread. Both stages fail-open, run on their own short-lived SQLite
-  connections, and never inside a synchronous request path. Still no cron.
+  **distill-flush daemon thread** (spawned by `/api/memory/settle` — legacy
+  `/idle` — the batch threshold, or the CLI), which after each flush evaluates
+  the cloud-consolidation trigger in the same thread, plus the **nightly
+  noise-sweep thread** (`MEMORY_NOISE_SWEEP_AT`, `off` to disable). Both
+  fail-open, run on their own short-lived SQLite connections, and never inside
+  a synchronous request path. Still no cron.
 - **Retention tiers**: `preference` / `decision` are permanent; `fact` /
   `artifact` survive on use — un-recalled for `MEMORY_TTL_STALE_DAYS` (default
   180; NULL counts from created_at) they are soft-deleted at the next purge,
@@ -467,6 +475,14 @@ single-entry forget lives in the web UI / `DELETE /api/memories/{uid}`.
   enough for day-granularity retention.
 - **`semantic-memory backfill`**: embeds every live entry that has no vector yet
   (one-shot reconcile after installing the model). Manual because it is heavy.
+- **`semantic-memory noise-sweep [--dry-run]`**: one noise sweep, JSON report on
+  stdout — the same routine the nightly thread runs (deterministic predicate
+  hits soft-forgotten, weak-signal suspects reported only). Like
+  `purge`/`distill` it is a maintenance CLI: it never goes through the HTTP
+  bulk gate, so no `MEMORY_TOKEN` is needed. This is the entry the
+  `silicon-memory maintain` hot-layer adapter calls; when an external scheduler
+  owns the sweep, set `MEMORY_NOISE_SWEEP_AT=off` on the service so there is
+  exactly one sweep owner.
 
 ## Vector channel (same vectors as ctx-semantic)
 

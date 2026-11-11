@@ -2,11 +2,11 @@
 // 驱动——不接触真实热服务/经验库/知识库。契约见 skills/unified-memory/references/lifecycle.md。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runLifecycle, defaultAdapters, lintOutcome } from "./lifecycle.mjs";
+import { runLifecycle, defaultAdapters, lintOutcome, resolveSmBin, smCliRun } from "./lifecycle.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const K = "/fake/knowledge"; // 假知识根：know ref 归一化用（相对路径去 .md、去 modules/ 前缀）
@@ -340,29 +340,83 @@ test("bin/silicon-memory 根 dispatch 已接线五命令（bash 面不 exec 真�
   assert.ok(sh.includes("knowledge)"), "旧 knowledge 子命令须保持兼容");
 });
 
-test("生产 hot 适配器：无 MEMORY_TOKEN 服务的 /api/maintenance/* 403 bulk-disabled 降级 skipped，其余 403 照抛", async () => {
+// ---- CLI 解析链与 spawn 面（生产维护面：purge/distill/noiseSweep 走本地 CLI，ag-609f9a） ----
+
+test("resolveSmBin：SM_SEMANTIC_MEMORY_BIN > 仓内 server/venv > ~/.local/bin > PATH 兜底", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sm-res-"));
+  const repoVenv = join(dir, "venv-sm");
+  const localBin = join(dir, "home", ".local", "bin", "semantic-memory");
+  mkdirSync(dirname(localBin), { recursive: true });
+  writeFileSync(repoVenv, "", { mode: 0o755 });
+  writeFileSync(localBin, "", { mode: 0o755 });
+  const home = join(dir, "home");
+  // ① 显式 env 覆盖一切
+  assert.equal(resolveSmBin({ SM_SEMANTIC_MEMORY_BIN: "/opt/custom/sm" }, home, repoVenv), "/opt/custom/sm");
+  // ② 仓内 venv 存在 → 胜 ~/.local/bin
+  assert.equal(resolveSmBin({}, home, repoVenv), repoVenv);
+  // ③ 仓内缺失 → ~/.local/bin 存在
+  assert.equal(resolveSmBin({}, home, join(dir, "venv-absent")), localBin);
+  // ④ 全缺 → PATH 兜底（spawn 自行解析）
+  rmSync(localBin);
+  assert.equal(resolveSmBin({}, home, join(dir, "venv-absent")), "semantic-memory");
+});
+
+test("smCliRun：参数透传＋stdout JSON 解析；spawn 失败/非零 rc/坏 JSON 均抛错不吞", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sm-cli-"));
+  const log = join(dir, "args.log");
+  const ok = join(dir, "sm-ok");
+  writeFileSync(ok, `#!/bin/sh\necho "$*" >> "${log}"\necho '{"status":"done","purged":3}'\n`, { mode: 0o755 });
+  const run = smCliRun(ok);
+  assert.deepEqual(await run(["noise-sweep", "--dry-run"]), { status: "done", purged: 3 });
+  assert.equal(readFileSync(log, "utf8"), "noise-sweep --dry-run\n");
+  assert.throws(() => smCliRun(join(dir, "nope"))(["purge"]), /spawn 失败/);
+  const badRc = join(dir, "sm-rc");
+  writeFileSync(badRc, '#!/bin/sh\necho "boom" >&2\nexit 3\n', { mode: 0o755 });
+  assert.throws(() => smCliRun(badRc)(["purge"]), /rc3.*boom/);
+  const badJson = join(dir, "sm-json");
+  writeFileSync(badJson, '#!/bin/sh\necho "not json"\n', { mode: 0o755 });
+  assert.throws(() => smCliRun(badJson)(["distill"]), /输出非 JSON/);
+});
+
+test("生产 hot 适配器：settle/supersede 走统一端点；purge/noiseSweep/distill 走本地 CLI（不经 /api/maintenance/*）", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "sm-ad-"));
+  const log = join(dir, "args.log");
+  const bin = join(dir, "sm-fake");
+  writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${log}"\necho '{"status":"done"}'\n`, { mode: 0o755 });
   const realFetch = globalThis.fetch;
   const seen = [];
   globalThis.fetch = async (url, init) => {
-    seen.push(String(url));
-    const body403 = JSON.stringify({ error: "bulk maintenance disabled without MEMORY_TOKEN; use the CLI" });
-    if (String(url).includes("/api/maintenance/")) return new Response(body403, { status: 403, headers: { "content-type": "application/json" } });
-    if (String(url).includes("/idle")) return new Response(JSON.stringify({ error: "host not allowed" }), { status: 403, headers: { "content-type": "application/json" } });
-    return new Response(JSON.stringify({ hits: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    seen.push({ url: String(url), body: JSON.parse(init?.body ?? "{}") });
+    return new Response(JSON.stringify({ ok: true, hits: [] }), { status: 200, headers: { "content-type": "application/json" } });
   };
+  const prevUrl = process.env.MEMORY_PLUGIN_URL;
+  const prevBin = process.env.SM_SEMANTIC_MEMORY_BIN;
+  process.env.MEMORY_PLUGIN_URL = "http://127.0.0.1:9";
+  process.env.SM_SEMANTIC_MEMORY_BIN = bin;
+  try {
+    const hot = defaultAdapters().hot;
+    assert.deepEqual(await hot.settle({ project: "/r", session: "s" }), { flushed: true });
+    await hot.supersede({ uid: "u1", by: "u2" });
+    assert.deepEqual(seen.map((s) => s.url), ["http://127.0.0.1:9/api/memory/settle", "http://127.0.0.1:9/api/memory/retire"]);
+    assert.deepEqual(seen[1].body, { uid: "u1", by: "u2" }, "retire 载荷与旧 /supersede 同形");
+    assert.deepEqual(await hot.purge(), { status: "done" });
+    assert.deepEqual(await hot.noiseSweep({ dry_run: true }), { status: "done" });
+    assert.deepEqual(await hot.distill({ apply: true }), { status: "done" });
+    assert.equal(readFileSync(log, "utf8"), "purge\nnoise-sweep --dry-run\ndistill\n", "CLI 参数序：purge → noise-sweep --dry-run → distill");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevUrl === undefined) delete process.env.MEMORY_PLUGIN_URL; else process.env.MEMORY_PLUGIN_URL = prevUrl;
+    if (prevBin === undefined) delete process.env.SM_SEMANTIC_MEMORY_BIN; else process.env.SM_SEMANTIC_MEMORY_BIN = prevBin;
+  }
+});
+
+test("生产 hot 适配器：settle 端点 403 照抛（HTTP 面仅剩统一生命周期端点，无 bulk 降级路径）", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: "host not allowed" }), { status: 403, headers: { "content-type": "application/json" } });
   const prevUrl = process.env.MEMORY_PLUGIN_URL;
   process.env.MEMORY_PLUGIN_URL = "http://127.0.0.1:9";
   try {
-    const hot = defaultAdapters().hot;
-    assert.deepEqual(await hot.noiseSweep({ dry_run: true }), { status: "skipped", reason: "bulk_disabled_without_token" });
-    assert.deepEqual(await hot.purge(), { status: "skipped", reason: "bulk_disabled_without_token" });
-    // recall 不在维护面：正常返回，不触降级
-    assert.deepEqual(await hot.recall({ query: "q", limit: 1, project: "/r" }), []);
-    await assert.rejects(
-      hot.settle(),
-      /POST \/idle → 403/,
-      "非 bulk-disabled 的 403 不应被降级吞掉",
-    );
+    await assert.rejects(defaultAdapters().hot.settle(), /POST \/api\/memory\/settle → 403/);
   } finally {
     globalThis.fetch = realFetch;
     if (prevUrl === undefined) delete process.env.MEMORY_PLUGIN_URL; else process.env.MEMORY_PLUGIN_URL = prevUrl;

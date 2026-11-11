@@ -625,6 +625,8 @@ def _noise_sweep_daemon(store: MemoryStore, at: str) -> None:
 
 
 def start_noise_sweep_daemon(store: MemoryStore, at: str) -> None:
+    if at.strip().lower() == "off":  # 外部统一调度（maintain --apply）接管时关内置夜扫；standalone 缺省仍 03:30
+        return
     _parse_sweep_at(at)  # 线程前校验：非法即在 serve() 同步抛出，兑现启动 fail-fast
     threading.Thread(target=_noise_sweep_daemon, args=(store, at),
                      daemon=True, name="noise-sweep").start()

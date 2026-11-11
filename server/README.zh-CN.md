@@ -25,7 +25,8 @@ coding agent 上下文管理的**侧车（sidecar）**：提供**模型语义级
 │  context/compaction/generate → /recall → 注入块           │
 │    拼在末条 user 消息之前（次末位）+ 每会话冻结头块        │
 │    （偏好/决定，字节冻结进 event.system）                 │
-│  session.idle → POST /idle（排空蒸馏队列）                │
+│  session.idle → POST /api/memory/settle（排空蒸馏队列； │
+│    旧 /idle 兼容别名）                                    │
 │  compaction 前 → /ingest（压缩丢弃 ≠ 记忆永存）            │
 │  chat.message "记住…" / 语义自动捕获 → /ingest            │
 │  tool execute.after（白名单）→ /ingest                    │
@@ -33,7 +34,8 @@ coding agent 上下文管理的**侧车（sidecar）**：提供**模型语义级
                        │ HTTP 127.0.0.1:8765（Bearer token 可选）
 ┌──────────────────────▼────────────────────────────────────┐
 │  semantic-memory 服务（单进程，标准库 http.server）        │
-│  REST API：/recall /ingest /idle /health + 浏览页         │
+│  REST API：/recall /ingest /health + 生命周期端点         │
+│  （/api/memory/settle|retire；旧 /idle|/supersede 别名）  │
 │  opencode 原生工具：memory_store / memory_recall          │
 │  SQLite + FTS5(porter|trigram) + 向量BLOB，RRF(k=60)      │
 │                                                          │
@@ -329,8 +331,10 @@ MEMORY_PORT=0 semantic-memory
 | `GET /api/injections?harness=&project=&limit=&offset=` | 注入遥测，按时间倒序 |
 | `GET /api/graph?uid=&cross_sim=` | 单条目 1-hop 图谱边（取代链/共注入/同义跨域，可遍历观测面） |
 | `POST /inject/report` | 注入遥测上报（插件/适配器信道，只追加） |
-| `POST /idle` | 通知空闲：daemon 线程排空蒸馏队列（立即 204，鉴权同 /ingest） |
+| `POST /api/memory/settle` | 统一生命周期 settle：daemon 线程排空蒸馏队列（立即 204，热路径零 LLM，鉴权同 /ingest）；请求体可选 `{project, session_id}`（当前 flush 全库，字段只接收不筛选）。旧 `POST /idle` 保持为兼容别名 |
+| `POST /idle` | `POST /api/memory/settle` 的**兼容别名**（语义一致） |
 | `DELETE /api/memories/{uid}` | 单条遗忘（与 CLI 同信任级） |
+| `POST /api/memory/retire` | 统一生命周期 retire：人工退役 `{"uid","by"}` → 200 `{ok,uid,superseded_by}`；400/404/409 与旧 `POST /supersede` 同一业务函数同款错误码（幂等，首次接替指针不覆盖）；CLI 孪生：`semantic-memory supersede <old> --by NEW`。旧 `/supersede` 保持为兼容别名 |
 | `POST /api/maintenance/purge` | 批量维护（软删除硬清 + TTL + VACUUM） |
 | `POST /api/maintenance/backfill` | 向量补嵌 |
 
@@ -431,16 +435,18 @@ golden 集（按 `(project, query)` 去重、取最近注入——供给侧标�
   为 `compaction` 或 `chat` 时落入持久化的 `distill_queue` 表——热路径零 LLM；
   显式 `remember` / `tool` 捕获保持直存。flush 触发器（三路，仅此三路——
   **无启动排空、无 cron**）：下次 `/ingest` 入队时 pending ≥ `MEMORY_DISTILL_BATCH`、
-  `POST /idle` 通知、`semantic-memory distill`（手动）。flush 在 daemon 线程内用
+  `POST /api/memory/settle` 通知（旧 `/idle` 兼容别名）、`semantic-memory distill`
+  （手动）。flush 在 daemon 线程内用
   独立短连接 SQLite 跑（每批 ≤5 行提交，进程内单飞）；蒸馏输出按 typed facts
   落库（`scope=global` → `project` NULL，保留 session id）；蒸馏关闭/失败/
   不可解析 → 原文直存（`stored_raw`）——不差于蒸馏前行为；向量经 `backfill`
-  追平。**仅装适配器（shell adapters，无 v2 插件）时无 `/idle` 投递者**：
-  队列内容在批量阈值触发或手动 `semantic-memory distill` 之前不可检索——
+  追平。**仅装适配器（shell adapters，无 v2 插件）时无 `/api/memory/settle`
+  投递者**：队列内容在批量阈值触发或手动 `semantic-memory distill` 之前不可检索——
   按设计的有界延迟。
-- **并发契约**：服务仅有的后台工作是**蒸馏 flush 的 daemon 线程**（由 `/idle`、
-  批量阈值或 CLI 触发），每次 flush 完成后在同一线程内评估云整合触发。
-  两级都 fail-open、各自使用独立短连接、绝不在同步请求路径内跑。
+- **并发契约**：服务的后台工作是**蒸馏 flush 的 daemon 线程**（由
+  `/api/memory/settle`——旧 `/idle`——批量阈值或 CLI 触发；每次 flush 完成后
+  在同一线程内评估云整合触发）与**夜扫线程**（`MEMORY_NOISE_SWEEP_AT`，
+  `off` 关闭）。两级都 fail-open、各自使用独立短连接、绝不在同步请求路径内跑。
   仍然没有 cron。
 - **保留分层**：`preference` / `decision` 永久；`fact` / `artifact` 按使用度
   存活——超过 `MEMORY_TTL_STALE_DAYS`（默认 180；NULL 按 created_at）未被召回，
@@ -451,6 +457,12 @@ golden 集（按 `(project, query)` 去重、取最近注入——供给侧标�
   重启频率对天级粒度的保留策略足够。
 - **`semantic-memory backfill`**：为所有缺向量的活条目补算嵌入（装模型后的
   一次性追平）。重操作，保持手动。
+- **`semantic-memory noise-sweep [--dry-run]`**：手动夜扫一次，stdout 输出
+  JSON 报告——与夜扫线程同一例程（确定性谓词命中→软删，弱信号疑似→只进
+  报告）。与 `purge`/`distill` 同属维护 CLI：不经 HTTP 批量闸，无需
+  `MEMORY_TOKEN`。这也是 `silicon-memory maintain` 热层适配器的调用入口；
+  外部统一调度接管清扫时，服务侧配 `MEMORY_NOISE_SWEEP_AT=off`，保证任一
+  时刻只有一个清扫拥有者（standalone 缺省仍内置 03:30）。
 
 ## 向量通道（与 ctx-semantic 同源）
 

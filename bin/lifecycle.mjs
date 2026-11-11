@@ -1,27 +1,29 @@
 #!/usr/bin/env node
 // 统一记忆根命令控制面：load/settle/maintain/promote/retire 五命令的编排层。
-// 三层适配器（hot=热服务 HTTP / experience=ae.mjs / knowledge=ae.mjs lint）可注入——
-// 测试用假适配器零接触真实记忆库；生产走 defaultAdapters()。
+// 三层适配器（hot=热服务 HTTP＋本地维护 CLI / experience=ae.mjs / knowledge=ae.mjs lint）
+// 可注入——测试用假适配器零接触真实记忆库；生产走 defaultAdapters()。
 // 契约：统一报告 {operation,actions,agent_actions,candidates,reports,errors}；
 // action.status ∈ done|skipped|findings|candidate|failed；单层失败不阻断他层；
 // 任一 failed → rc1；参数错误 → rc2；done/skipped/findings/candidate → rc0。
 // 详见 skills/unified-memory/references/lifecycle.md。
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { basename, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire} [options]
   load      --project <path> --session <id> --query <text> [--store <dir>] [--limit <n>]
             跨层装配：知识(3)→经验(3)→热(5，--limit 仅覆盖热层)；命中规范化 hot:/exp:/know: 引用
   settle    --project <path> --session <id>
-            触发热层 settle（POST /idle）＋返回 capture-if-signaled / ingest-if-material 指令
+            触发热层 settle（POST /api/memory/settle）＋返回 capture-if-signaled / ingest-if-material 指令
   maintain  [--project <path>] [--scope hot,experience,knowledge] [--phase all|groom|judge] [--apply] [--store <dir>]
             缺省 report-only；--phase 仅 experience scope 合法；knowledge lint findings 记 findings 非 failed
+            热层维护（purge/distill/noise-sweep）经本地 semantic-memory CLI，不经 HTTP 批量闸
   promote   --proposal <path> [--apply] [--experience <id> --to <know ref>]
             dry-run 只做 proposal 校验＋返回 ingest 指令；--apply 需 verdict: approved，调 ae.mjs promote
   retire    --ref hot:<uid>|exp:<id> --by hot:<uid>|exp:<id>
-            同层退役（hot→POST /supersede；exp→ae.mjs supersede）；跨层组合 rc2
+            同层退役（hot→POST /api/memory/retire；exp→ae.mjs supersede）；跨层组合 rc2
 
 全局旗标 --json：输出恒为 JSON 报告（接受该旗标以对齐文档面，不改变行为）`;
 
@@ -285,6 +287,33 @@ function aeRun(args) {
   return r.stdout ?? "";
 }
 
+// 语义记忆维护 CLI 解析链（ag-609f9a）：SM_SEMANTIC_MEMORY_BIN > 仓内 server/venv >
+// ~/.local/bin > PATH 兜底。维护面（purge/distill/noise-sweep）走本地 CLI，
+// 不经 HTTP 批量闸——无 token 部署照样可维护。
+export function resolveSmBin(env = process.env, home = homedir(),
+  repoVenv = fileURLToPath(new URL("../server/venv/bin/semantic-memory", import.meta.url))) {
+  if (env.SM_SEMANTIC_MEMORY_BIN) return env.SM_SEMANTIC_MEMORY_BIN;
+  if (existsSync(repoVenv)) return repoVenv;
+  const local = join(home, ".local", "bin", "semantic-memory");
+  return existsSync(local) ? local : "semantic-memory";
+}
+
+// spawn 面：失败/非零 rc/坏 JSON 都抛错（记 failed，不吞错）；stdout 恒为单行 JSON 报告
+export function smCliRun(bin) {
+  return (args) => {
+    const r = spawnSync(bin, args, { encoding: "utf8" });
+    if (r.error) throw new Error(`semantic-memory spawn 失败: ${r.error.message}`);
+    if (r.status !== 0)
+      throw new Error(`semantic-memory ${args.join(" ")} → rc${r.status}: ${`${r.stdout ?? ""}${r.stderr ?? ""}`.trim().slice(0, 400)}`);
+    const out = (r.stdout ?? "").trim();
+    try {
+      return out ? JSON.parse(out) : {};
+    } catch (err) {
+      throw new Error(`semantic-memory ${args.join(" ")} 输出非 JSON: ${String(err?.message ?? err).slice(0, 120)} <${out.slice(0, 120)}>`);
+    }
+  };
+}
+
 // lint 后端结果分类（B3）：spawn 失败或输出不像 ae.mjs knowledge lint（其末行恒含
 // "knowledge lint:"）＝后端没跑起来，抛错走 failed/rc1——不得折叠成 findings 假装健康
 export function lintOutcome(r) {
@@ -306,24 +335,17 @@ export function defaultAdapters() {
     if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${text.slice(0, 200)}`);
     return text ? JSON.parse(text) : {};
   };
-  // 批量维护面（/api/maintenance/*）在服务端未配 MEMORY_TOKEN 时恒 403（_bulk_guard：
-  // 引导走 CLI）——属部署配置态而非操作失败，降级 skipped 让 maintain 不因该层 rc1
-  const bulkPost = async (path, body = {}) => {
-    try { return await httpPost(path, body); }
-    catch (err) {
-      if (/→ 403/.test(err.message) && err.message.includes("bulk maintenance disabled"))
-        return { status: "skipped", reason: "bulk_disabled_without_token" };
-      throw err;
-    }
-  };
+  // 热层维护三操作（purge/distill/noiseSweep）走本地 semantic-memory CLI——
+  // 维护 CLI 与 HTTP 批量闸同级，无需 MEMORY_TOKEN；spawn 失败/非零 rc 由
+  // smCliRun 抛错记 failed（不吞错）。解析链见 resolveSmBin。
+  const smCli = smCliRun(resolveSmBin());
   const hot = {
     recall: async ({ query, limit, project }) => (await httpPost("/recall", { query, limit, project })).hits ?? [],
-    settle: async () => { await httpPost("/idle"); return { flushed: true }; }, // 生产映射：POST /idle 触发队列 flush
-    supersede: async ({ uid, by }) => httpPost("/supersede", { uid, by }),
-    purge: async () => bulkPost("/api/maintenance/purge"),
-    noiseSweep: async ({ dry_run }) => bulkPost("/api/maintenance/noise_sweep", { dry_run }),
-    // 生产暂无 distill 的 HTTP/CLI 面：适配器占位（后续任务接线），报告 skipped 而非 failed
-    distill: async () => ({ status: "skipped", reason: "distill_via_cli_deferred" }),
+    settle: async () => { await httpPost("/api/memory/settle"); return { flushed: true }; }, // 生产映射：统一生命周期端点触发队列 flush（204 空体）
+    supersede: async ({ uid, by }) => httpPost("/api/memory/retire", { uid, by }),
+    purge: async () => smCli(["purge"]),
+    noiseSweep: async ({ dry_run }) => smCli(["noise-sweep", ...(dry_run ? ["--dry-run"] : [])]),
+    distill: async () => smCli(["distill"]),
   };
   const experience = {
     query: async ({ query, store }) =>

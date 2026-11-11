@@ -640,8 +640,9 @@ function reportInjection(hook: string, r: { block: string; hits: Hit[]; query: s
 
 /**
  * session.idle 订阅（spike③ PASS：ctx.event.subscribe 事件流过滤）：
- * 会话空闲 → POST /idle 触发服务端蒸馏 flush。fire-and-forget，
- * 失败静默（批量阈值 ≥20 与 CLI distill 兑底）。返回清理函数（abort 流）。
+ * 会话空闲 → POST /api/memory/settle（统一生命周期端点，body {scope:["hot"]}）
+ * 触发服务端蒸馏 flush。fire-and-forget，失败静默（批量阈值 ≥20 与 CLI distill
+ * 兑底）。返回清理函数（abort 流）。
  */
 function subscribeIdle(ctx: StableCtx): (() => void) | undefined {
   if (typeof ctx.event?.subscribe !== "function") return undefined;
@@ -650,7 +651,7 @@ function subscribeIdle(ctx: StableCtx): (() => void) | undefined {
   void (async () => {
     try {
       for await (const e of sub) {
-        if (e?.type === "session.idle") void post("/idle", {});
+        if (e?.type === "session.idle") void post("/api/memory/settle", { scope: ["hot"] });
       }
     } catch { /* 流中断：批量阈值/CLI distill 兑底 */ }
   })();
@@ -847,7 +848,7 @@ async function control(ctx: StableCtx, options?: Record<string, unknown>): Promi
               required: ["uid", "by"],
             },
             execute: async (input: any) => ({
-              content: await postTool("/supersede", { uid: input.uid, by: input.by }),
+              content: await postTool("/api/memory/retire", { uid: input.uid, by: input.by }),
             }),
           });
         });

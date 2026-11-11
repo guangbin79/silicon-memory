@@ -1,6 +1,6 @@
 """语义记忆服务：stdlib http.server 单进程 REST 面。
 
-ThreadingHTTPServer + BaseHTTPRequestHandler 分发：14 条端点（13 静态 +
+ThreadingHTTPServer + BaseHTTPRequestHandler 分发：16 条端点（15 静态 +
 DELETE /api/memories/{uid}），函数体与鉴权规则与旧外壳逐条等价。
 
 HTTP 硬性属性（评审钉死）：
@@ -592,7 +592,7 @@ def _authorized(headers) -> bool:
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _MAX_BODY_BYTES = 8 * 1024 * 1024  # 回环个人服务；嵌入文本量级远小于此
 _JSON_POST_PATHS = frozenset({
-    "/recall", "/ingest", "/supersede", "/inject/report",
+    "/recall", "/ingest", "/supersede", "/api/memory/retire", "/inject/report",
     "/api/maintenance/purge", "/api/maintenance/backfill",
     "/api/maintenance/noise_sweep",
 })
@@ -756,7 +756,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return
             if not self._origin_ok():
                 return self._send_json({"error": "cross-origin write rejected"}, 403)
-            if path == "/idle":
+            if path in ("/idle", "/api/memory/settle"):
+                # 统一生命周期绑定：/api/memory/settle 与 /idle 同语义（204 立即回，
+                # _spawn_flush daemon 线程，热路径零 LLM）。请求体可选 {project,session_id}
+                # ——flush 全库执行，字段只接收不筛选（前向兼容面）。
                 if not _authorized(self.headers):
                     return self._send_json({"error": "unauthorized"}, 401)
                 _spawn_flush()  # 204 立即回，flush 在 daemon 线程执行（热路径零 LLM）
@@ -781,7 +784,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     return self._send_h(rest_recall(parsed))
                 if path == "/ingest":
                     return self._send_h(rest_ingest(parsed))
-                if path == "/supersede":
+                if path in ("/supersede", "/api/memory/retire"):
+                    # 统一生命周期绑定：/api/memory/retire 复用 rest_supersede 同一
+                    # 业务函数与响应/错误码（别名，不复制维护逻辑）
                     return self._send_h(rest_supersede(parsed))
                 if path == "/inject/report":
                     status, payload = inject_report(parsed)
@@ -1105,7 +1110,7 @@ def _cmd_supersede(argv: list[str]) -> int:
 _USAGE = """usage: semantic-memory [-h] [command]
 
 语义记忆服务（单进程）。默认命令 serve：启动 HTTP 服务（REST 面）。
-管理子命令：setup / purge / backfill / eval / golden / consolidate / distill / sweep / supersede（详见各 --help）。
+管理子命令：setup / purge / backfill / eval / golden / consolidate / distill / sweep / supersede / noise-sweep（详见各 --help）。
 """
 
 
@@ -1160,6 +1165,9 @@ def main() -> None:
         return
     if cmd == "sweep":  # 一致性巡检：悬空路径引用候选报告，只报告不删除（悬空≠无效）
         print(json.dumps(run_sweep(store), ensure_ascii=False))
+        return
+    if cmd == "noise-sweep":  # 夜扫维护 CLI（与 purge/distill 同级，不经 HTTP 批量闸）
+        print(json.dumps(noise_sweep(store, dry_run="--dry-run" in args), ensure_ascii=False))
         return
     if cmd == "supersede":  # 人工温层退役入口（cloud.Consolidator 同款 UPDATE）
         raise SystemExit(_cmd_supersede(args[1:]))

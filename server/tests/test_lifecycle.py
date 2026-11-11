@@ -705,3 +705,43 @@ def test_cli_supersede_gates(tmp_path):
     assert s2.conn.execute("SELECT superseded_by FROM memories WHERE uid=?",
                            (b,)).fetchone()[0] is None
     s2.close()
+
+
+def test_cli_noise_sweep(tmp_path):
+    """维护 CLI noise-sweep（不经 HTTP 批量闸）：--dry-run 零写入报告 JSON，
+    不带旗标实删（确定性谓词命中→软删），输出与 lifecycle.noise_sweep 同构。"""
+    import json
+    import os
+    import subprocess
+    import sys
+    db = tmp_path / "ns.db"
+    s = MemoryStore(db)
+    uid = s.store(content="[agora] task ag-1 done from ses_x\n" + "ab" * 20,
+                  kind="fact", source="chat")
+    s.close()
+    env = {**os.environ, "MEMORY_DB_PATH": str(db), "MEMORY_MODEL_PATH": "",
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+
+    dry = subprocess.run(
+        [sys.executable, "-m", "semantic_memory.server", "noise-sweep", "--dry-run"],
+        capture_output=True, text=True, env=env, timeout=120,
+    )
+    assert dry.returncode == 0, dry.stderr
+    report = json.loads(dry.stdout)
+    assert report["dry_run"] is True and "scanned" in report and "suspicious" in report
+    assert any(f["uid"] == uid for f in report["forgotten"])
+    s2 = MemoryStore(db)
+    live = s2.conn.execute("SELECT deleted FROM memories WHERE uid=?", (uid,)).fetchone()[0]
+    s2.close()
+    assert live == 0, "--dry-run 不得写入"
+
+    real = subprocess.run(
+        [sys.executable, "-m", "semantic_memory.server", "noise-sweep"],
+        capture_output=True, text=True, env=env, timeout=120,
+    )
+    assert real.returncode == 0, real.stderr
+    assert "dry_run" not in json.loads(real.stdout)
+    s3 = MemoryStore(db)
+    deleted = s3.conn.execute("SELECT deleted FROM memories WHERE uid=?", (uid,)).fetchone()[0]
+    s3.close()
+    assert deleted == 1, "实删形态对齐 lifecycle.noise_sweep（确定性命中→软删）"

@@ -9,8 +9,8 @@
  *      尾注（uid 哈希去重），头块两次请求字节相同（prefix cache）；
  *   4. task7：compaction 全量 transcript 入蒸馏队列（source=compaction + session_id，
  *      多条消息拼接、≤8000 字符）；chat 语义自动捕获（≥40 字符/哈希去重/≤50 每会话，
- *      source=chat 入队）；session.idle 事件流订阅 → POST /idle → flush 落库；
- *      显式 remember 改发 source=remember（直存，不入队）；
+ *      source=chat 入队）；session.idle 事件流订阅 → POST /api/memory/settle（统一生命
+ *      周期端点，body {scope:["hot"]}）→ flush 落库；显式 remember 改发 source=remember（直存，不入队）；
  *   5. tool execute.after 白名单捕获 artifact，error 状态不捕获；
  *   6. task11：头块 top2 / 负例（fact、跨项目不进头块）/ 首钩无用户文本推迟 /
  *      INJECT_POSITION=system 回退；
@@ -18,7 +18,7 @@
  *   8. A4：stable 线 ctx.tool.transform 注册恰 3 个原生工具（memory_store/memory_recall/
  *      memory_supersede，input 为 JSON Schema）；store→POST /ingest（body.source=remember、project 用 stable
  *      线变量、input.text→body.content）；recall→POST /recall（query/limit 透传）；
- *      supersede→POST /supersede（uid/by 透传）；fetch reject→返回不可达错误串（含 setup 提示）绝不 throw（独立 10s 超时面）。
+ *      supersede→POST /api/memory/retire（uid/by 透传，统一生命周期端点）；fetch reject→返回不可达错误串（含 setup 提示）绝不 throw（独立 10s 超时面）。
  *
  * 运行：npm test（自持：build＋8766 tmp DB 服务拉起→test-hooks→teardown）；
  *       或手动：MEMORY_PLUGIN_URL=http://127.0.0.1:8766 MEMORY_DB_PATH=/tmp/xxx.db node test-hooks.mjs
@@ -27,7 +27,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -284,18 +284,32 @@ await pfire("s-chat", "c3", "太短");
 assert.equal(queuedCount("s-chat"), c0 + 1, "短消息不应入队");
 console.log("ok  chat 语义捕获: 长消息入队 source=chat + 重复/短消息跳过");
 
-// 4c) session.idle 订阅（事件流过滤）→ POST /idle → 服务端 flush 落库
-// 此刻 pending < 20（批量阈值未达），入队行被 flush 落库只能经插件 POST /idle 触发。
+// 4c) session.idle 订阅（事件流过滤）→ POST /api/memory/settle → 服务端 flush 落库
+// 此刻 pending < 20（批量阈值未达），入队行被 flush 落库只能经插件 POST /api/memory/settle 触发。
+// fetch 包一层记录调用：断言控制面走统一生命周期端点且载荷 {scope:["hot"]}（透传真实服务）。
+const realFetch4c = globalThis.fetch;
+let settleCall = null;
+globalThis.fetch = async (url, init) => {
+  if (String(url).endsWith("/api/memory/settle")) {
+    settleCall = { url: String(url), body: JSON.parse(init?.body ?? "{}") };
+  }
+  return realFetch4c(url, init);
+};
 channel.push({ type: "session.idle", data: { sessionID: "s-comp" } });
+for (let i = 0; i < 20 && !settleCall; i++) await new Promise((r2) => setTimeout(r2, 100));
+globalThis.fetch = realFetch4c;
+assert.ok(settleCall, "session.idle 应 POST /api/memory/settle（统一生命周期端点）");
+assert.equal(settleCall.url, `${BASE}/api/memory/settle`);
+assert.deepEqual(settleCall.body, { scope: ["hot"] }, "settle 载荷应带 scope:[\"hot\"]");
 let flushed = null;
 for (let i = 0; i < 40 && !flushed; i++) {
   await new Promise((r2) => setTimeout(r2, 150));
   const mem = await getJson(`/api/memories?project=${encodeURIComponent(PROJECT_KEY)}&limit=200`);
   flushed = mem.memories.find((m) => m.source === "compaction" && m.content.includes("坐标转换模块")) ?? null;
 }
-assert.ok(flushed, "idle 事件后 transcript 应经 POST /idle → flush 落库");
+assert.ok(flushed, "idle 事件后 transcript 应经 POST /api/memory/settle → flush 落库");
 assert.ok(flushed.content.includes("assistant: 好的，瓦片缓存"), "flush 落库应保留全量 transcript");
-console.log("ok  session.idle: 事件流触发 POST /idle → 蒸馏队列 flush 落库");
+console.log("ok  session.idle: 事件流触发 POST /api/memory/settle {scope:[\"hot\"]} → 蒸馏队列 flush 落库");
 
 // 4d) chat 捕获限额：每会话 ≤50 条
 for (let i = 0; i < 51; i++) {
@@ -547,11 +561,11 @@ try {
   assert.equal(rec.body.limit, 3);
 
   await supTool.execute({ uid: "u-old", by: "u-new" }, toolCtx);
-  const sup = fetched.find((f) => f.url === `${BASE}/supersede`);
-  assert.ok(sup, "memory_supersede 应 POST {url}/supersede");
+  const sup = fetched.find((f) => f.url === `${BASE}/api/memory/retire`);
+  assert.ok(sup, "memory_supersede 应 POST {url}/api/memory/retire");
   assert.equal(sup.body.uid, "u-old");
   assert.equal(sup.body.by, "u-new");
-  console.log("ok  工具转发: store→/ingest(source=remember,project) 且 input.text→body.content；recall→/recall(query/limit)；supersede→/supersede(uid/by)");
+  console.log("ok  工具转发: store→/ingest(source=remember,project) 且 input.text→body.content；recall→/recall(query/limit)；supersede→/api/memory/retire(uid/by)");
 
   // fetch reject → 返回不可达错误串（含 setup 提示），绝不 throw（fail-open）
   globalThis.fetch = async () => { throw new TypeError("fetch failed"); };
@@ -630,5 +644,19 @@ const trunc = execFileSync(
 assert.ok(trunc.startsWith("中文记") && !trunc.includes("\uFFFD"),
   "recall.sh 同款截断须按码点切：多字节内容在边界处不得产生撕裂字节/替换符");
 console.log("ok  适配器: 共享 remember 分支发 source=remember；薄壳 exec 路由锚定；码点截断边界回归");
+
+// ---------- 控制面接线静态断言（ag-609f9a）：生产 memory.ts 不再走旧生命周期路径 ----------
+// 精确调用片段断言（非裸路径字符串）：README/注释里的 `POST /idle` 说明文字不会误伤，
+// 但任何真实的 post("/idle", …)/postTool("/supersede", …) 调用都会命中。
+const memSrc = readFileSync(join(import.meta.dirname, "memory.ts"), "utf8");
+assert.ok(!memSrc.includes('post("/idle"'), "生产 memory.ts 不得再含 post(\"/idle\"…（控制面已切 /api/memory/settle）");
+assert.ok(!memSrc.includes('postTool("/supersede"'), "生产 memory.ts 不得再含 postTool(\"/supersede\"…（控制面已切 /api/memory/retire）");
+assert.ok(memSrc.includes('post("/api/memory/settle"'), "生产 memory.ts 须含 post(\"/api/memory/settle\"…");
+assert.ok(memSrc.includes('postTool("/api/memory/retire"'), "生产 memory.ts 须含 postTool(\"/api/memory/retire\"…");
+// 数据面不变：/recall、/ingest、/inject/report 调用仍在
+for (const p of ['"/recall"', '"/ingest"', '"/inject/report"']) {
+  assert.ok(memSrc.includes(p), `数据面端点调用不得变动: ${p}`);
+}
+console.log("ok  控制面静态断言: memory.ts 无 post(\"/idle\")/postTool(\"/supersede\")，settle/retire 走统一端点，数据面三端点不变");
 
 console.log("\n全部 mock-ctx 钩子集成测试通过（stable + legacy 两线 + task11 头块/位置/键控 + options + task7 写入侧/idle + A4 原生工具 + 跨项目图谱）");

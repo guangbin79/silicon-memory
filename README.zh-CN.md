@@ -83,6 +83,8 @@ semantic-memory 服务 — http://127.0.0.1:8765（Python 标准库，fail-open�
    ▲
 silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 PATH）
    memory capture|query|supersede|promote|…    knowledge query|ingest|lint
+   lifecycle load|settle|maintain|promote|retire — 统一控制面
+   （settle/retire → /api/memory/settle|retire · maintain → 本地 CLI）
         │                                           │
    ~/.agent-experiences              <项目>/docs/agents/knowledge/
    （episodic，跨项目）               （semantic，随仓，版本化）

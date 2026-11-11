@@ -18,6 +18,9 @@ LOG=$(mktemp /tmp/sm-itest-XXXXXX.log)
 export MEMORY_DISTILL_MODEL=
 export MEMORY_PLUGIN_TOOL_CAPTURE=bash   # execute.after 白名单默认关闭，test §5 依赖 bash 捕获
 export MEMORY_DISTILL_BATCH=0            # 关批量 flush（pending≥20 自动排空会掏空 distill_queue，§4d 计数 flaky）；队列只经 /idle flush
+# venv 里装的是主仓独立副本（site-packages）——集成测试服务必须跑本仓（worktree）代码：
+# PYTHONPATH 优先级高于 site-packages（与 tests/test_lifecycle.py CLI 用例同款钉法）
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 # 嵌入通道钉 BM25-only（ag-f51f40 verify 实证）：llama_cpp wheel 不可移植（源码构建于
 # sm_120 机器，本机 CPU 内核 SIGILL/CUDA 上下文 ValueError）——向量面可用性随宿主机漂移，
 # 插件契约断言不依赖向量通道；与上面 MEMORY_DISTILL_MODEL= 空串禁用同款模式

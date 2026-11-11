@@ -134,6 +134,20 @@ def test_start_daemon_fail_fast_on_bad_at(store):
         lifecycle.start_noise_sweep_daemon(store, "25:00")  # 线程 spawn 前同步抛
 
 
+def test_start_daemon_off_skips_thread(store, monkeypatch):
+    """"off"（不区分大小写）＝不启动夜扫线程——外部统一调度接管时的关闸档；
+    合法 HH:MM（03:30）照常启动，standalone 缺省不变。"""
+    from types import SimpleNamespace
+    started = []
+    monkeypatch.setattr(lifecycle.threading, "Thread",
+                        lambda **kw: started.append(kw) or SimpleNamespace(start=lambda: None))
+    lifecycle.start_noise_sweep_daemon(store, "off")
+    lifecycle.start_noise_sweep_daemon(store, "OFF")
+    assert started == []
+    lifecycle.start_noise_sweep_daemon(store, "03:30")
+    assert len(started) == 1 and started[0].get("daemon") is True
+
+
 def test_parse_sweep_at():
     assert _parse_sweep_at("03:30") == (3, 30)
     assert _parse_sweep_at("23:59") == (23, 59)

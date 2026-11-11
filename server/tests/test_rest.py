@@ -396,6 +396,45 @@ def test_idle_returns_204_and_flushes_async(client, monkeypatch):
     assert len(calls) == 1
 
 
+# ---------- 统一生命周期绑定：/api/memory/settle｜/api/memory/retire（ag-609f9a） ----------
+
+def test_settle_alias_204_and_flushes_async(client, monkeypatch):
+    """POST /api/memory/settle 与 /idle 同语义：鉴权后 204 立即回，flush 在 daemon
+    线程；请求体可选 {project,session_id}（当前 flush 全库，字段只接收不筛选）。"""
+    done = threading.Event()
+    calls = []
+
+    def fake_flush(*args, **kwargs):
+        calls.append(1)
+        done.set()
+        return {"typed": 0, "stored_raw": 0}
+
+    monkeypatch.setattr(server, "flush_distill_queue", fake_flush)
+    r = client.post("/api/memory/settle", json={"project": "p", "session_id": "s"})
+    assert r.status_code == 204 and r._body == b""
+    assert "Content-Length" not in r.headers
+    assert done.wait(timeout=5)
+    assert len(calls) == 1
+
+
+def test_settle_alias_auth_like_ingest(client, with_token):
+    assert client.post("/api/memory/settle", json={}).status_code == 401
+
+
+def test_retire_alias_reuses_supersede_contract(client):
+    """/api/memory/retire 复用 rest_supersede 同一业务函数与响应/错误码。"""
+    a = client.post("/ingest", json={"content": "retire 别名旧条目 QX9retire",
+                                     "kind": "fact", "source": "test"}).json()["uid"]
+    b = client.post("/ingest", json={"content": "retire 别名新条目 QX9retire",
+                                     "kind": "fact", "source": "test"}).json()["uid"]
+    r = client.post("/api/memory/retire", json={"uid": a, "by": b})
+    assert r.status_code == 200 and r.json()["superseded_by"] == b
+    # 同款错误码：已退役 409（幂等保护）、未知 uid 404、自指 400
+    assert client.post("/api/memory/retire", json={"uid": a, "by": b}).status_code == 409
+    assert client.post("/api/memory/retire", json={"uid": "no-such", "by": b}).status_code == 404
+    assert client.post("/api/memory/retire", json={"uid": b, "by": b}).status_code == 400
+
+
 # ---------- task14：观测面 ----------
 
 def test_recall_latency_recorded(client):

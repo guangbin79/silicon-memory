@@ -85,6 +85,8 @@ semantic-memory service — http://127.0.0.1:8765 (Python stdlib, fail-open)
    ▲
 silicon-memory CLI — the agent-facing face (declare it, it's on PATH)
    memory capture|query|supersede|promote|…    knowledge query|ingest|lint
+   lifecycle load|settle|maintain|promote|retire — unified control plane
+   (settle/retire → /api/memory/settle|retire · maintain → local CLI)
         │                                           │
    ~/.agent-experiences              <project>/docs/agents/knowledge/
    (episodic, cross-project)         (semantic, in-repo, versioned)
