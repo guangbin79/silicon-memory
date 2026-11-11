@@ -5,6 +5,7 @@ description: |
 ---
 > ⚠️ Superseded by `unified-memory`（sidecar Phase 3，2026-10-11）：memory＋knowledge 已有统一入口；本 skill 语义与数据面不变，references 仍是唯一真源。
 > 统一入口：`skills/unified-memory/SKILL.md` ｜ CLI：`silicon-memory knowledge {query|ingest|lint}`（机械面）＋本 skill Ingest/Lint 过程（语义面）
+> 本 skill 通常由 `settle` 返回的 `agent_actions`（ingest-if-material）触发；下列命令为内部执行器
 
 
 # Project Compound

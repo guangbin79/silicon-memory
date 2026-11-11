@@ -11,9 +11,16 @@ description: |
 
 ## When to Use
 
-- 非平凡任务开工前：`silicon-memory knowledge query "<中英关键词>"` 跨层查旧账（experiences＋knowledge 一次查完）
-- 非平凡任务收尾后：经验 → capture（agent-experience 五步）；知识 → project-compound ingest 六步
+- 非平凡任务开工前：`silicon-memory load --project <repo> --session <session-or-task-id> --query <中英关键词> --json` 跨层装配候选（知识 3＋经验 3＋热 5）；`--session` 没有真实会话 id 时用稳定任务 id，禁止编造跨任务复用状态
+- 非平凡任务收尾后：`silicon-memory settle --project <repo> --session <同上> --json` 读回 `agent_actions`——命中 `agent-experience.capture-if-signaled` 才走 agent-experience capture（五步），命中 `project-compound.ingest-if-material` 才走 project-compound ingest（六步）；无信号／No material 不保存；实际复用照旧写 reuses.md／feedback.md／既有反馈面
 - 知识库健康检查：`silicon-memory knowledge lint`（机械面，见下「Lint 分工」）
+
+## 角色边界
+
+- 任务 owner：load＋settle 全套（开工装配＋收尾信号解读）
+- dispatcher：可 load 预研，不代 worker settle
+- 只读 subagent：仅 load 返回引用，不 settle 不沉淀
+- 普通 agent 禁日常 `maintain --apply`（02:00 调度唯一拥有者）
 
 ## Data Layout（两层原地不动——无迁移、无格式转换）
 
@@ -25,6 +32,20 @@ description: |
 经验→知识的升华（promote to semantic）仍走 project-compound ingest（先通读全文＋引逐字证据）。
 
 ## Command Map（silicon-memory CLI，harness 无关）
+
+公开控制面（日常入口）：
+
+| 命令 | 效果 |
+|------|------|
+| `silicon-memory load` | `--project <repo> --session <id> --query <中英关键词> --json` 跨层装配候选：知识(3)→经验(3)→热(5)，引用形如 `hot:<uid>`／`exp:<文件名>`／`know:<modules 相对路径>`。固定配额装配器不是全量检索——全库查重／退役档案深查用下方内部命令或 grep |
+| `silicon-memory settle` | `--project <repo> --session <同上> --json` 返回 `agent_actions`（capture-if-signaled／ingest-if-material）；不自动调 LLM、不写经验/知识 |
+| `silicon-memory maintain` | 缺省 report-only；`--apply` 仅归 02:00 调度拥有者，普通 agent 日常禁用 |
+| `silicon-memory promote` | 仅 `verdict: approved` 提案可 `--apply`；知识页写入仍归 ingest |
+| `silicon-memory retire` | 仅确认语义互斥才退役；不确定先问人 |
+
+命令语义、适配器边界与报告/退出码契约见 `references/lifecycle.md`。
+
+内部适配器（旧命令不删除、不改语义，降为内部执行器）：
 
 | 命令 | 效果 | 底层 |
 |------|------|------|
@@ -41,10 +62,6 @@ description: |
 > 治理类命令（practice／policy／evolution／groom／mount／constitution）属部署方私有 CLI，不在本仓范围。
 
 路径解析：knowledge root＝`$AE_KNOWLEDGE_PATH` > 自 cwd 向上找 `docs/agents/knowledge`（与 project-compound 的 `./docs` 相对语义一致）；经验 store 覆盖沿用 `--store`。
-
-## Lifecycle 根命令
-
-`silicon-memory {load|settle|maintain|promote|retire}`——生命周期控制面：三层适配器（热 HTTP／经验 ae.mjs／知识 ae.mjs）编排，统一 JSON 报告（单层失败不阻断；failed→rc1、参数错→rc2、findings/candidate→rc0）。命令语义、适配器边界与 02:00 maintain --apply 计划见 `references/lifecycle.md`。
 
 `knowledge query`（语义层）不在盲视作用域内——盲视仅覆盖 `memory query --scope=verifier`；同 UID 下 verifier 文件系统可达性为记录在案的天花板（UID 分离 out of scope）。
 
