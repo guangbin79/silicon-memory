@@ -15,10 +15,10 @@
  *   6. task11：头块 top2 / 负例（fact、跨项目不进头块）/ 首钩无用户文本推迟 /
  *      INJECT_POSITION=system 回退；
  *   7. adapters：claude-code/kimi-code on-prompt.sh 的 remember 分支发 source=remember；
- *   8. A4：stable 线 ctx.tool.transform 注册恰 2 个原生工具（memory_store/memory_recall，
- *      input 为 JSON Schema）；store→POST /ingest（body.source=remember、project 用 stable
+ *   8. A4：stable 线 ctx.tool.transform 注册恰 3 个原生工具（memory_store/memory_recall/
+ *      memory_supersede，input 为 JSON Schema）；store→POST /ingest（body.source=remember、project 用 stable
  *      线变量、input.text→body.content）；recall→POST /recall（query/limit 透传）；
- *      fetch reject→返回不可达错误串（含 setup 提示）绝不 throw（独立 10s 超时面）。
+ *      supersede→POST /supersede（uid/by 透传）；fetch reject→返回不可达错误串（含 setup 提示）绝不 throw（独立 10s 超时面）。
  *
  * 运行：npm test（自持：build＋8766 tmp DB 服务拉起→test-hooks→teardown）；
  *       或手动：MEMORY_PLUGIN_URL=http://127.0.0.1:8766 MEMORY_DB_PATH=/tmp/xxx.db node test-hooks.mjs
@@ -27,11 +27,27 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import plugin from "./dist/memory.js";
 
 const BASE = (process.env.MEMORY_PLUGIN_URL ?? "http://127.0.0.1:8766").replace(/\/$/, "");
-const PROJECT = "/tmp/mockproj";
+
+// 项目夹具根因修正（W 写侧门）：固定 /tmp/mockproj 非 git 无 origin——自动捕获被
+// unresolvable_project 拒收、显式 remember 降级全局，项目召回必空。改为 mkdtemp
+// 临时 git 仓＋独立 origin（各项目 origin 互异，避免归一键撞桶串扰）。
+// 归一键＝origin 去 host（*_KEY，供 /api/memories 原样匹配）；recall/ingest/ctx 仍传
+// 原路径，由服务端 resolve_project 归一。测试后残留＝OS tmp，无需手工清理。
+function mockRepo(name) {
+  const dir = mkdtempSync(join(tmpdir(), `mockproj-${name}-`));
+  execFileSync("git", ["-C", dir, "init", "-q"]);
+  execFileSync("git", ["-C", dir, "remote", "add", "origin", `https://example.com/mock/${name}.git`]);
+  return dir;
+}
+const PROJECT = mockRepo("repo");
+const PROJECT_KEY = "example.com/mock/repo";
 
 // ---------- 模拟 opencode v2 Context ----------
 
@@ -272,7 +288,7 @@ channel.push({ type: "session.idle", data: { sessionID: "s-comp" } });
 let flushed = null;
 for (let i = 0; i < 40 && !flushed; i++) {
   await new Promise((r2) => setTimeout(r2, 150));
-  const mem = await getJson(`/api/memories?project=${encodeURIComponent(PROJECT)}&limit=200`);
+  const mem = await getJson(`/api/memories?project=${encodeURIComponent(PROJECT_KEY)}&limit=200`);
   flushed = mem.memories.find((m) => m.source === "compaction" && m.content.includes("坐标转换模块")) ?? null;
 }
 assert.ok(flushed, "idle 事件后 transcript 应经 POST /idle → flush 落库");
@@ -300,7 +316,7 @@ await fire(hooks.tool, "execute.after", {
   tool: "read", sessionID: "s1", agent: "a1", messageID: "m4", id: "c3", // 非白名单
   status: "completed", input: {}, result: { content: "should not be captured" },
 });
-const arts = await getJson(`/api/memories?kind=artifact&project=${encodeURIComponent(PROJECT)}`);
+const arts = await getJson(`/api/memories?kind=artifact&project=${encodeURIComponent(PROJECT_KEY)}`);
 assert.ok(arts.memories.some((m) => m.content.includes("26 passed")), "工具产物未捕获");
 assert.ok(!arts.memories.some((m) => m.content.includes("boom")), "error 状态不应捕获");
 assert.ok(!arts.memories.some((m) => m.content.includes("should not")), "非白名单工具不应捕获");
@@ -317,7 +333,7 @@ await fire(hooks.tool, "execute.after", {
   status: "completed", input: {},
   result: { content: "qzhij9 clean output 42" },
 });
-const hyg = await getJson(`/api/memories?kind=artifact&project=${encodeURIComponent(PROJECT)}`);
+const hyg = await getJson(`/api/memories?kind=artifact&project=${encodeURIComponent(PROJECT_KEY)}`);
 assert.ok(!hyg.memories.some((m) => m.content.includes("reveal secrets")), "注入模式产物不应落库");
 assert.ok(hyg.memories.some((m) => m.content.includes("qzhij9 clean")), "正常产物应照常捕获");
 
@@ -353,7 +369,7 @@ await post("/ingest", {
 });
 await post("/ingest", {
   content: "其他项目的部署偏好 qzhij9otherproj",
-  kind: "preference", source: "manual", project: "/tmp/mockproj-other", tags: [],
+  kind: "preference", source: "manual", project: mockRepo("other"), tags: [],
 });
 
 // 头块会话：首条用户文本钉死 query；preference top2 进头块，fact/跨项目不进
@@ -398,7 +414,8 @@ console.log("ok  会话键控: 新会话不受其他会话去重状态互斥");
 
 // ---------- legacy/dev 线：v1 形态 ctx → 钩子映射 ----------
 
-const LPROJECT = "/tmp/mockproj-legacy";
+const LPROJECT = mockRepo("legacy");
+const LPROJECT_KEY = "example.com/mock/legacy";
 const v1ctx = {
   client: {}, // v1 形态：{client, project, directory, worktree, ...}
   project: { id: "p2", directory: LPROJECT },
@@ -414,7 +431,7 @@ console.log("ok  legacy 线: v1 ctx 返回 chat.message/compacting/tool.execute.
 
 // legacy 显式记忆捕获
 await legacyHooks["chat.message"]({}, { parts: [{ type: "text", text: "请记住：legacy 线的显式记忆内容验证" }] });
-let lapi = await getJson(`/api/memories?project=${encodeURIComponent(LPROJECT)}&limit=200`);
+let lapi = await getJson(`/api/memories?project=${encodeURIComponent(LPROJECT_KEY)}&limit=200`);
 assert.ok(
   lapi.memories.some((m) => m.kind === "preference" && m.content.includes("legacy 线的显式记忆")),
   "legacy chat.message 未捕获显式记忆",
@@ -450,7 +467,7 @@ console.log("ok  legacy compacting: 重置去重后恢复注入");
 // legacy 工具捕获：白名单 + 字符串 output
 await legacyHooks["tool.execute.after"]({ tool: "bash" }, { output: "legacy artifact xyz123" });
 await legacyHooks["tool.execute.after"]({ tool: "read" }, { output: "legacy should not capture" });
-const larts = await getJson(`/api/memories?kind=artifact&project=${encodeURIComponent(LPROJECT)}`);
+const larts = await getJson(`/api/memories?kind=artifact&project=${encodeURIComponent(LPROJECT_KEY)}`);
 assert.ok(larts.memories.some((m) => m.content.includes("xyz123")), "legacy 工具产物未捕获");
 assert.ok(!larts.memories.some((m) => m.content.includes("should not")), "legacy 非白名单不应捕获");
 console.log("ok  legacy tool.execute.after: 白名单捕获，非白名单跳过");
@@ -469,7 +486,7 @@ console.log("ok  INJECT_POSITION=system: 回退 event.system.push，messages 不
 
 // ---------- 插件 options：优先级 env > options > 默认 ----------
 
-const OPTPROJ = "/tmp/mockproj-options";
+const OPTPROJ = mockRepo("options");
 // options.url 故意写错：env MEMORY_PLUGIN_URL 正确 → 召回应成功（env 优先）；
 // options.limit=1：env 未设 MEMORY_PLUGIN_LIMIT → options 补空缺（应生效）。
 const octx = { client: {}, project: { id: "p3", directory: OPTPROJ }, directory: OPTPROJ, worktree: OPTPROJ };
@@ -485,10 +502,11 @@ console.log("ok  插件 options: env 优先于 options，options 补空缺（lim
 
 // ---------- A4：stable 线原生工具 memory_store / memory_recall（fetch mock 验证转发契约） ----------
 
-assert.equal(toolDefs.length, 2, `原生工具应恰注册 2 个（实际 ${toolDefs.length}）`);
+assert.equal(toolDefs.length, 3, `原生工具应恰注册 3 个（实际 ${toolDefs.length}）`);
 const storeTool = toolDefs.find((t) => t.name === "memory_store");
 const recallTool = toolDefs.find((t) => t.name === "memory_recall");
-assert.ok(storeTool && recallTool, "工具名应为 memory_store / memory_recall");
+const supTool = toolDefs.find((t) => t.name === "memory_supersede");
+assert.ok(storeTool && recallTool && supTool, "工具名应为 memory_store / memory_recall / memory_supersede");
 for (const t of toolDefs) {
   assert.equal(t.input.type, "object", `${t.name} input 应为 JSON Schema object`);
   assert.ok(t.input.properties && !Array.isArray(t.input.properties), `${t.name} input.properties 应为对象`);
@@ -498,7 +516,8 @@ for (const t of toolDefs) {
 assert.ok(storeTool.input.required.includes("text"), "store input 应必填 text");
 assert.deepEqual(storeTool.input.properties.kind.enum, ["preference", "decision", "fact"], "kind 枚举应为三档");
 assert.ok(recallTool.input.required.includes("query"), "recall input 应必填 query");
-console.log("ok  原生工具注册: 恰 2 个（memory_store/memory_recall），input 均为 JSON Schema");
+assert.ok(supTool.input.required.includes("uid") && supTool.input.required.includes("by"), "supersede input 应必填 uid/by");
+console.log("ok  原生工具注册: 恰 3 个（memory_store/memory_recall/memory_supersede），input 均为 JSON Schema");
 
 // fetch mock：验证转发契约（store 的 /ingest body.source=remember + stable 线 project；recall 透传 query/limit）
 const realFetch = globalThis.fetch;
@@ -524,7 +543,13 @@ try {
   assert.ok(rec, "memory_recall 应 POST {url}/recall");
   assert.equal(rec.body.query, "部署分支");
   assert.equal(rec.body.limit, 3);
-  console.log("ok  工具转发: store→/ingest(source=remember,project) 且 input.text→body.content；recall→/recall(query/limit)");
+
+  await supTool.execute({ uid: "u-old", by: "u-new" }, toolCtx);
+  const sup = fetched.find((f) => f.url === `${BASE}/supersede`);
+  assert.ok(sup, "memory_supersede 应 POST {url}/supersede");
+  assert.equal(sup.body.uid, "u-old");
+  assert.equal(sup.body.by, "u-new");
+  console.log("ok  工具转发: store→/ingest(source=remember,project) 且 input.text→body.content；recall→/recall(query/limit)；supersede→/supersede(uid/by)");
 
   // fetch reject → 返回不可达错误串（含 setup 提示），绝不 throw（fail-open）
   globalThis.fetch = async () => { throw new TypeError("fetch failed"); };
@@ -548,12 +573,13 @@ const xctx = makeCtx();
   const cua = (await post("/ingest", {
   content: "跨项目图谱种子条目 qzhij9crossa", kind: "fact", source: "manual", project: PROJECT, tags: [],
 })).uid;
+const XPROJ = mockRepo("x");
 const cub = (await post("/ingest", {
-  content: "网关 5xx 即熔断重试的降级预案", kind: "fact", source: "manual", project: "/tmp/mockproj-x", tags: [],
+  content: "网关 5xx 即熔断重试的降级预案", kind: "fact", source: "manual", project: XPROJ, tags: [],
 })).uid;
 // 跨项目 preference：extras 保留原始 kind——不排除则会钻进冻结头块（task11 不变量）
   const cup = (await post("/ingest", {
-  content: "发布窗口固定在周三上午十点", kind: "preference", source: "manual", project: "/tmp/mockproj-x", tags: [],
+  content: "发布窗口固定在周三上午十点", kind: "preference", source: "manual", project: XPROJ, tags: [],
 })).uid;
   await post("/inject/report", {
   harness: "test", hook: "context", query: "qzhij9cross", uids: [cua, cub], chars: 64, project: PROJECT,

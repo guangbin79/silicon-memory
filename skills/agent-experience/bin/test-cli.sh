@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # silicon-memory CLI 冒烟：子命令映射与 ae.mjs 直跑输出等价
-# 用法: bash test-cli.sh <repo根>
+# 用法: bash test-cli.sh [repo根]（缺省＝自 $0 上溯仓根，仓库内任意 cwd 可直跑）
 set -u
-R="$(readlink -f "${1:?usage: test-cli.sh <repo根>}")"
+R="$(readlink -f "${1:-$(dirname "$(readlink -f "$0")")/../../..}")"
 BIN="$R/bin/silicon-memory"
 F=$(mktemp -d /tmp/ae-fixture-cli-XXXX)
 trap 'rm -rf "$F"' EXIT
