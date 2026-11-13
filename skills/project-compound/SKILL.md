@@ -19,6 +19,7 @@ Incremental, compounding knowledge wiki for this project. The LLM builds and mai
 ## When to Use
 
 - Task completed (feature, bugfix, refactor)
+- Iteration landed or worktree about to be torn down (ingest before cleanup — knowledge outlives the worktree)
 - Design decision with non-obvious tradeoffs
 - Bug root cause identified
 - Need to query prior knowledge before acting
@@ -99,6 +100,8 @@ Files already exist? Skip silently.
 ## Operation: Query (fast path)
 
 Read `knowledge-index.md` → read relevant module pages → synthesize answer → return.
+
+Cross-project borrowing: before porting any rule/decision/config from another project, run query (and ingest for new material) against THAT project's `./docs/agents/knowledge` first; copy conclusions with their evidence, never blindly.
 
 Good answers compound. If a query produces a comparison, analysis, or connection not yet in the wiki — file it back:
 1. Append the synthesis to `./docs/agents/knowledge/modules/{module}.md` as a new entry（套最接近的条目模板；`Source: query synthesis` + 日期）
