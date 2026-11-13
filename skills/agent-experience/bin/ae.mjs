@@ -100,6 +100,37 @@ function appendIndexRow(store, row) {
   fs.writeFileSync(idx, text.endsWith('\n') ? text : `${text}\n`);
 }
 
+// ---- capture 后库提交（不 push）：store 常脏会拦主仓检出上的交付闸（agora advance_local_target
+//      local_target_dirty 终局失败）——capture 即收编同会话手写脏面（skill-uses/reuses/reviews）。
+//      非 git 库 store＝静默跳过；.capture.lock 锁内在场，exclude pathspec 防其入库；
+//      index.lock 竞争重试两次（agentctl practice_git_commit 同款）；提交失败仅告警不回滚
+//      （记录已落盘且重试安全，残余脏面由后续 capture/groom 收编）。----
+function gitCommitStore(store, id) {
+  let root = '';
+  try {
+    const r = spawnSync('git', ['-C', store, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    if (r.status !== 0) return;
+    root = r.stdout.trim();
+  } catch { return; }
+  const user = os.userInfo().username;
+  for (let attempt = 0; ; attempt++) {
+    let add = spawnSync('git', ['-C', root, 'add', '--', store, ':(exclude,glob)**/.capture.lock'], { encoding: 'utf8' });
+    if (add.status !== 0) // store 命中机器本地排除（.git/info/exclude）时整路径拒止——退 -u 只收 tracked 改动，新文件按排除面搁浅
+      add = spawnSync('git', ['-C', root, 'add', '-u', '--', store], { encoding: 'utf8' });
+    if (add.status === 0) {
+      const staged = spawnSync('git', ['-C', root, 'diff', '--cached', '--quiet', '--', store], { encoding: 'utf8' });
+      if (staged.status === 0) return; // 无新脏面（幂等重放）
+      if (staged.status === 1) {
+        const cm = spawnSync('git', ['-C', root, '-c', `user.name=${user}`, '-c', `user.email=${user}@localhost`,
+          'commit', '-m', `memory(capture): ${id}`, '--', store], { encoding: 'utf8' });
+        if (cm.status === 0) return;
+      }
+    }
+    if (attempt >= 2) { process.stderr.write(`capture-commit: 提交未成（记录已落盘，残余脏面由后续 capture/groom 收编）: ${id}\n`); return; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+  }
+}
+
 // ---- capture --from：草稿落盘（gt-24a8）。id 缺省铸+回填（扫描止于闭合围栏）；ID_RE 前置校验防路径逃逸；
 //      重复 id／空 related（lint §5 实例 20261022-162609-0544）／INDEX 列破坏值（created_at・回填 title 含 |）／控制字节拒绝；
 //      validate 经临时目录 <id>.md 跑以满足 id=stem 契约，失败清临时、store 零接触；
@@ -178,6 +209,7 @@ function cmdCapture(store, draftPath) {
       if (idxBackup !== null) { try { fs.writeFileSync(idxPath, idxBackup); } catch {} } // INDEX 半写还原（R2-L5）
       return { rc: 1, out: `capture: store 写入失败已回滚: ${e.message}\n` };
     }
+    gitCommitStore(store, id); // 锁内提交：脏面即落即净（不 push——push 归 groom 单一拥有者）
     return { rc: 0, out: `${id}\n${target}\n` };
   } finally {
     try {
