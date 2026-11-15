@@ -373,6 +373,9 @@ test("smCliRun：参数透传＋stdout JSON 解析；spawn 失败/非零 rc/坏 
   const badRc = join(dir, "sm-rc");
   writeFileSync(badRc, '#!/bin/sh\necho "boom" >&2\nexit 3\n', { mode: 0o755 });
   assert.throws(() => smCliRun(badRc)(["purge"]), /rc3.*boom/);
+  const sigKilled = join(dir, "sm-sig");
+  writeFileSync(sigKilled, "#!/bin/sh\nkill -ILL $$\n", { mode: 0o755 });
+  assert.throws(() => smCliRun(sigKilled)(["distill"]), /sig=SIGILL/);
   const badJson = join(dir, "sm-json");
   writeFileSync(badJson, '#!/bin/sh\necho "not json"\n', { mode: 0o755 });
   assert.throws(() => smCliRun(badJson)(["distill"]), /输出非 JSON/);

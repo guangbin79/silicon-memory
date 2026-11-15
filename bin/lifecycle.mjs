@@ -304,7 +304,7 @@ export function smCliRun(bin) {
     const r = spawnSync(bin, args, { encoding: "utf8" });
     if (r.error) throw new Error(`semantic-memory spawn 失败: ${r.error.message}`);
     if (r.status !== 0)
-      throw new Error(`semantic-memory ${args.join(" ")} → rc${r.status}: ${`${r.stdout ?? ""}${r.stderr ?? ""}`.trim().slice(0, 400)}`);
+      throw new Error(`semantic-memory ${args.join(" ")} → rc${r.status}${r.signal ? ` sig=${r.signal}` : ""}: ${`${r.stdout ?? ""}${r.stderr ?? ""}`.trim().slice(0, 400)}`);
     const out = (r.stdout ?? "").trim();
     try {
       return out ? JSON.parse(out) : {};
@@ -361,7 +361,7 @@ export function defaultAdapters() {
           ...(project ? ["--project", project] : []),
           ...(store ? ["--store", store] : []), "--json"], { encoding: "utf8" });
         if (r.error) throw new Error(`SM_EXPERIENCE_RUNNER spawn 失败: ${r.error.message}`);
-        if (r.status !== 0) throw new Error(`SM_EXPERIENCE_RUNNER rc${r.status}: ${(r.stderr ?? "").trim().slice(0, 200)}`);
+        if (r.status !== 0) throw new Error(`SM_EXPERIENCE_RUNNER rc${r.status}${r.signal ? ` sig=${r.signal}` : ""}: ${(r.stderr ?? "").trim().slice(0, 200)}`);
         return { status: "done", report: (r.stdout ?? "").trim() };
       },
     } : {}),
