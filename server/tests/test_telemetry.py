@@ -142,6 +142,15 @@ def test_throttle_no_spam():
     assert plan_alerts(100.0, 10, last, now) == []
 
 
+def test_p95_thresholds_clear_rerank_budget():
+    """契约：ERROR 线须 ≥2× rerank 缺省预算 1500ms（防 1200<1500 的告警疲劳事故复发）；
+    WARN 线须覆盖健康重排尾段 ~1000ms；2026-11-17 校准。"""
+    from semantic_memory.server import ERROR_P95_MS, WARN_P95_MS
+
+    assert ERROR_P95_MS >= 2 * 1500
+    assert WARN_P95_MS >= 1000.0
+
+
 def test_api_stats_observability_fields(client):
     s = client.get("/api/stats").json()
     for k in ("recall_p50_ms", "recall_p95_ms", "distill_queue_len",
