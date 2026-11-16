@@ -5,6 +5,7 @@ fail-open / 设备回退 / 槽位契约。
 触发其导入）；真件冒烟 opt-in：MEMORY_DISTILL_MODEL 指向真 GGUF 才跑，
 否则 skip（tests/test_embedder_real.py 先例）。
 """
+import json
 import logging
 import os
 from pathlib import Path
@@ -49,6 +50,26 @@ class MockDistillModel:
 
     def close(self):
         self.close_calls += 1
+
+
+class ChunkingMockModel(MockDistillModel):
+    """>5 条的块回无尾 ] 截断 JSON（模拟 MAX_NEW_TOKENS length 截断）；≤5 条回完整数组。"""
+
+    def __init__(self):
+        super().__init__()
+        self.chunk_sizes: list[int] = []
+
+    def create_completion(self, prompt, max_tokens=1, **_):
+        if "<<<TEXT>>>" not in prompt:  # 加载探针
+            return {"choices": [{"text": ""}]}
+        body = prompt.split("<<<TEXT>>>\n", 1)[1].split("\n<<<END>>>", 1)[0]
+        n = len(body.split("\n---\n"))
+        self.chunk_sizes.append(n)
+        if n > 5:  # 超预算块：输出被 length 截断，无结尾 ]
+            return {"choices": [{"text": '[{"content": "截断的条目'}]}
+        return {"choices": [{"text": json.dumps([
+            {"content": f"条目{i}", "kind": "fact", "scope": "project",
+             "rationale": "", "tags": []} for i in range(n)])}]}
 
 
 @pytest.fixture
@@ -142,6 +163,17 @@ def test_bad_json_raises_parse_error(monkeypatch, gguf, raw):
     with pytest.raises(DistillParseError):
         d.distill(["原文"], "p")
     assert not gpu_breaker.tripped()
+
+
+def test_large_group_chunked_within_output_budget(monkeypatch, gguf):
+    """大组（>5 条）分块蒸馏防输出截断死循环：2026-11-16 线上实证 11 条组
+    一次性蒸馏输出必超 MAX_NEW_TOKENS=1024 被 length 截断 → parse None →
+    DistillParseError → 整组留 pending，temperature=0.1 确定性复现成死循环。"""
+    mock = ChunkingMockModel()
+    d = make_distiller(monkeypatch, gguf, mock)
+    out = d.distill([f"原文{i}" for i in range(11)], "p")
+    assert out is not None and len(out) == 11  # 合并条目数与输入一致
+    assert mock.chunk_sizes == [5, 5, 1]  # 每块 ≤5 条，单块输出在预算内
 
 
 def test_non_dict_entries_dropped(monkeypatch, gguf):

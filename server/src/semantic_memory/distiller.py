@@ -32,6 +32,7 @@ log = logging.getLogger("semantic_memory.distiller")
 
 DISTILL_N_CTX: Final = 4096   # 6GB 卡显存适配（2026-10-21）：Q4 权重 1.05G＋KV 4096 ≈ 2.1G < 空闲 2.7G；输入截 2000 字符
 MAX_NEW_TOKENS: Final = 1024  # 一批 ≤20 条的 JSON 数组输出预算
+MAX_BATCH_TEXTS: Final = 5  # 5 条 × ~93 tok ≈ 470 ≪ MAX_NEW_TOKENS=1024；2026-11-16 大组 length 截断死循环事故
 # gt-e696（2026-10-23 "4356≥4096" 全局熔断）：MEMORIES 近邻段曾无界拼接在批原文截断点
 # 之后，积压批数十条近邻（每条 ≤2000 字符全文）撑爆 n_ctx。预算算术：
 # 2000（批原文）＋600（近邻）＋~450（模板/指令/system，含 2026-10-26 判据门＋负例）≈ 3050 tok < 4096。
@@ -264,7 +265,27 @@ class Distiller:
         self, texts: list[str], project: str,
         neighbors: list[tuple[str, str]] | None = None,
     ) -> list[dict] | None:
-        """一批原文 → typed 条目数组。
+        """一批原文 → typed 条目数组；大组按 MAX_BATCH_TEXTS 分块防输出截断。
+
+        任一块硬件类失败 → 整体 None；任一块解析抖动 → DistillParseError 照抛
+        （整组留 pending）；全部块 [] → []。"""
+        if not self.available or not texts:
+            return None
+        merged: list[dict] = []
+        for i in range(0, len(texts), MAX_BATCH_TEXTS):
+            entries = self._distill_group(
+                texts[i : i + MAX_BATCH_TEXTS], project, neighbors
+            )
+            if entries is None:
+                return None
+            merged.extend(entries)
+        return merged
+
+    def _distill_group(
+        self, texts: list[str], project: str,
+        neighbors: list[tuple[str, str]] | None = None,
+    ) -> list[dict] | None:
+        """单块蒸馏（≤MAX_BATCH_TEXTS 条）：输出预算内的原子调用单元。
 
         硬件类失败（加载失败等）→ None（调用方据 configured 熔断）；
         解析抖动（输出无 JSON 数组）→ DistillParseError（调用方 fail-closed
