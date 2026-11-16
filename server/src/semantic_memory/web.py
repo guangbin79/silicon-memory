@@ -104,8 +104,9 @@ async function loadStats() {
   const s = await api('/api/stats');
   $('stats').innerHTML = '';
   const p95 = s.recall_p95_ms || 0;
-  // 延迟三色徽章：正常 / 警告(p95>800ms) / 红(p95>1200ms 或条目>4万近暴力扫天花板)
-  const badge = (p95 > 1200 || (s.entries || 0) > 40000) ? 'hot' : p95 > 800 ? 'warn' : '';
+  // 延迟三色徽章：正常 / 警告(p95>1200ms) / 红(p95>3000ms 或条目>4万近暴力扫天花板)
+  // 阈值与 server.py WARN_P95_MS/ERROR_P95_MS 同值，改动需两侧同步（2026-11-17 校准）
+  const badge = (p95 > 3000 || (s.entries || 0) > 40000) ? 'hot' : p95 > 1200 ? 'warn' : '';
   const items = [['总条目', s.entries ?? s.total], ['已向量化', s.vectorized],
     ['库体积', (s.db_bytes / 1048576).toFixed(1) + ' MB'],
     ['向量通道', s.embedder ? (s.device || 'on') : 'BM25-only'],
