@@ -141,17 +141,32 @@ def _normalize(entry: Any) -> dict | None:
 
 
 def _parse(raw: str) -> list[dict] | None:
-    """容错解析：截取首 [ 至末 ]（兼容 markdown 围栏/前后闲话）；失败 None。"""
+    """容错解析：截取首 [ 至末 ]（兼容围栏/闲话）；失败 None。
+
+    抢救（2026-11-16 length 截断事故）：无 ] 或 loads 失败（末对象残缺）时，
+    从首个 [ 后 raw_decode 逐个收完整顶层对象；0 个完整对象仍 None。"""
     start, end = raw.find("["), raw.rfind("]")
-    if start == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, list):
-        return None
-    return [e for e in (_normalize(x) for x in data) if e is not None]
+    if start == -1:
+        return None  # 无 '['：纯 prose/空围栏，无抢救面
+    if end > start:
+        try:
+            data = json.loads(raw[start : end + 1])
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, list):
+            return [e for e in (_normalize(x) for x in data) if e is not None]
+    dec, salvaged, i = json.JSONDecoder(), [], start + 1
+    while i < len(raw):
+        while i < len(raw) and raw[i] in " \t\r\n,":  # 跳过空白与逗号找 '{'
+            i += 1
+        if i >= len(raw) or raw[i] != "{":
+            break
+        try:
+            obj, i = dec.raw_decode(raw, i)
+            salvaged.append(obj)
+        except json.JSONDecodeError:
+            break  # 首个残缺对象即截断点，抢救结束
+    return [e for e in map(_normalize, salvaged) if e is not None] or None
 
 
 class DistillParseError(Exception):

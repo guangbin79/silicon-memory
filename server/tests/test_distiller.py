@@ -19,6 +19,7 @@ from semantic_memory.distiller import (
     SYSTEM_PROMPT,
     DistillParseError,
     Distiller,
+    _parse,
     format_prompt,
 )
 
@@ -163,6 +164,19 @@ def test_bad_json_raises_parse_error(monkeypatch, gguf, raw):
     with pytest.raises(DistillParseError):
         d.distill(["原文"], "p")
     assert not gpu_breaker.tripped()
+
+
+def test_parse_salvages_truncated_array():
+    """length 截断数组（末对象残缺、无结尾 ]）逐对象抢救；0 个完整对象仍 None。"""
+    raw = (
+        '[\n  {"content": "a", "kind": "fact"},\n'
+        '  {"content": "b", "kind": "fact"},\n'
+        '  {"content": "c", "kind'
+    )
+    want = {"kind": "fact", "scope": "project", "rationale": "", "tags": []}
+    assert _parse(raw) == [dict(content=c, **want) for c in "ab"]
+    assert _parse("纯 prose，没有方括号") is None  # 无 '[' → 无抢救面
+    assert _parse('[{"content": "c", "kind') is None  # '[' 后零完整对象
 
 
 def test_large_group_chunked_within_output_budget(monkeypatch, gguf):
