@@ -127,17 +127,17 @@ def test_throttle_no_spam():
 
     last: dict[str, float] = {}
     now = 1000.0
-    fired = plan_alerts(900.0, 41000, last, now)
+    fired = plan_alerts(1500.0, 41000, last, now)
     assert [lv for lv, _ in fired] == ["warning", "info"]
     for lv, _ in fired:
         last[lv] = now
     # 10 分钟窗口内同级告警只打一次
-    assert plan_alerts(900.0, 41000, last, now + ALERT_WINDOW_S - 1) == []
+    assert plan_alerts(1500.0, 41000, last, now + ALERT_WINDOW_S - 1) == []
     # 窗口过后恢复
-    assert [lv for lv, _ in plan_alerts(900.0, 41000, last, now + ALERT_WINDOW_S)] == [
+    assert [lv for lv, _ in plan_alerts(1500.0, 41000, last, now + ALERT_WINDOW_S)] == [
         "warning", "info"]
     # WARN→ERROR 升级：不同级，不受 WARN 节流压住
-    assert [lv for lv, _ in plan_alerts(1500.0, 10, last, now + 1)] == ["error"]
+    assert [lv for lv, _ in plan_alerts(3500.0, 10, last, now + 1)] == ["error"]
     # 未超阈值：静默
     assert plan_alerts(100.0, 10, last, now) == []
 

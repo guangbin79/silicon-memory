@@ -69,8 +69,11 @@ log = logging.getLogger("semantic_memory")
 recall_latencies: deque[float] = deque(maxlen=100)   # /recall 最近延迟样本（ms）
 _alert_last: dict[str, float] = {}                   # level → 上次告警的 monotonic 时刻
 ALERT_WINDOW_S = 600.0      # 同级告警节流窗口：10 分钟内只打一次
-WARN_P95_MS = 800.0
-ERROR_P95_MS = 1200.0
+# 校准（2026-11-17，事故源 2026-11-16 90 次 ERROR/23 次 WARN 告警疲劳）：实测分层——
+# 静息 45-90ms / 含重排 500-1000ms（20 候选×25-50ms 串行推理）/ 蒸馏 INFER_LOCK 争用秒级尖峰。
+# WARN 1200 覆盖健康重排尾段；ERROR 3000 > 2×rerank 预算 1500ms，保留给真争用事故。
+WARN_P95_MS = 1200.0
+ERROR_P95_MS = 3000.0
 ENTRIES_CEILING = 40000     # 暴力扫性能天花板预警线
 _LEVELS = {"info": logging.INFO, "warning": logging.WARNING, "error": logging.ERROR}
 
@@ -85,7 +88,7 @@ def percentile(xs: list[float], p: float) -> float:
 
 def plan_alerts(p95_ms: float, entries: int, last: dict[str, float],
                 now: float) -> list[tuple[str, str]]:
-    """阈值判定（纯函数，不改动 last）：p95>1200 ERROR、>800 WARN、
+    """阈值判定（纯函数，不改动 last）：p95>3000 ERROR、>1200 WARN、
     entries>40000 INFO（接近暴力扫天花板）；同级受 10 分钟节流。"""
     candidates: list[tuple[str, str]] = []
     if p95_ms > ERROR_P95_MS:
