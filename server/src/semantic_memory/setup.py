@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import write_config
+from .config import DISTILL_AUTO_LARGE_MIN_MIB, write_config
 from .paths import MigrationRefused, migrate_legacy, resolve_data_dir
 
 # ---- 固定 sha256 常量表 ----
@@ -30,6 +30,8 @@ EMBED_URL = ("https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main
              "Qwen3-Embedding-0.6B-Q8_0.gguf")
 DISTILL_URL = ("https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/"
                "main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
+DISTILL_SMALL_URL = ("https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/"
+                     "main/Qwen3-1.7B-Q4_K_M.gguf")
 RERANK_URL = ("https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/"
               "resolve/main/qwen3-reranker-0.6b-q8_0.gguf")
 
@@ -52,6 +54,12 @@ MODELS: dict[str, ModelSpec] = {
         "distill", DISTILL_URL, "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
         2_497_281_120),
+    # 1.7B：sha256 钉自本机真件（2026-11-17 HF 不可达未能对上游元数据复核——
+    # 与 config.DISTILL_SMALL_GGUF_NAME 同名，server auto ≤6GiB 选它）
+    "distill_small": ModelSpec(
+        "distill_small", DISTILL_SMALL_URL, "Qwen3-1.7B-Q4_K_M.gguf",
+        "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
+        1_107_409_408),
     "rerank": ModelSpec(
         "rerank", RERANK_URL, "qwen3-reranker-0.6b-q8_0.gguf",
         "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
@@ -127,6 +135,29 @@ def _has_nvidia_smi() -> bool:
     return subprocess.run([exe], capture_output=True).returncode == 0
 
 
+def _card_total_mib() -> int | None:
+    """整卡总显存（MiB）；nvidia-smi 缺失/异常 → None。镜像 embedder._card_total_mib。"""
+    exe = shutil.which("nvidia-smi")
+    if exe is None:
+        return None
+    try:
+        out = subprocess.run(
+            [exe, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=True).stdout
+        return int(out.strip().splitlines()[0])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def _pick_distill_key(total_mib: int | None) -> str:
+    """full 档蒸馏选型（2026-11-17，与 config.auto_distill_model_name 同判据）：
+    ≤6GiB → 1.7B；>6GiB → 4B；探测失败 → 4B（维持 setup 既有行为——
+    小卡保护在 server 启动 auto 侧，setup 保守不缩已有交付）。"""
+    if total_mib is not None and total_mib <= DISTILL_AUTO_LARGE_MIN_MIB:
+        return "distill_small"
+    return "distill"
+
+
 # ---- 冒烟（bm25 档全跳过；函数粒度可 mock，真件路径见任务证据）----
 
 def _smoke_embed(path: Path, device: str) -> str | None:
@@ -168,12 +199,14 @@ def _smoke_rerank(path: Path, device: str) -> str | None:
     return None
 
 
-def _run_smoke(profile: str, models_dir: Path, device: str) -> list[str]:
+def _run_smoke(profile: str, models_dir: Path, device: str,
+               distill_filename: str | None = None) -> list[str]:
     if profile == "bm25":
         return []
     errors = [e for e in (
         _smoke_embed(models_dir / MODELS["embed"].filename, device),
-        _smoke_distill(models_dir / MODELS["distill"].filename, device) if profile == "full" else None,
+        _smoke_distill(models_dir / (distill_filename or MODELS["distill"].filename),
+                       device) if profile == "full" else None,
         _smoke_rerank(models_dir / MODELS["rerank"].filename, device) if profile == "full" else None,
     ) if e]
     return errors
@@ -210,7 +243,8 @@ def run_setup(argv: list[str] | None = None, *, client=None, out=sys.stdout) -> 
         device = "cuda" if _has_nvidia_smi() else "cpu"
 
     # ---- ① 探测：已有文件 sha256 复核→跳过；不符视同缺失重下 ----
-    specs = [MODELS[k] for k in _PROFILE_MODELS[ns.profile]]
+    distill_key = _pick_distill_key(_card_total_mib())
+    specs = [MODELS[distill_key if k == "distill" else k] for k in _PROFILE_MODELS[ns.profile]]
     missing, skipped, corrupt = [], [], []
     for spec in specs:
         target = models_dir / spec.filename
@@ -256,7 +290,7 @@ def run_setup(argv: list[str] | None = None, *, client=None, out=sys.stdout) -> 
     if ns.profile in ("full", "embed"):
         values["model_path"] = str(models_dir / MODELS["embed"].filename)
     if ns.profile == "full":
-        values["distill_model"] = str(models_dir / MODELS["distill"].filename)
+        values["distill_model"] = str(models_dir / MODELS[distill_key].filename)
     if ns.profile == "bm25":
         values["allow_bm25_only"] = True
     existing_cfg = data_dir / "config.toml"
@@ -266,7 +300,8 @@ def run_setup(argv: list[str] | None = None, *, client=None, out=sys.stdout) -> 
     config_path = write_config(data_dir, values)
 
     # ---- ④ 冒烟（bm25 全跳过；真件）----
-    for msg in _run_smoke(ns.profile, models_dir, device):
+    for msg in _run_smoke(ns.profile, models_dir, device,
+                          distill_filename=MODELS[distill_key].filename):
         print(f"setup: 冒烟失败——{msg}", file=sys.stderr)
         return 1
 

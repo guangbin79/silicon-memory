@@ -41,6 +41,7 @@ _paths = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_paths)
 _home = _paths.resolve_data_dir()
 _home_tilde = str(_home).replace("/home/checkdocs", "~")
+code_defaults["MEMORY_DISTILL_MODEL"] = "auto"  # config.py 三态：键缺省→auto 按整卡总显存选型（2026-11-17）
 code_defaults["MEMORY_DATA_DIR"] = _home_tilde
 code_defaults["MEMORY_DB_PATH"] = str(_paths.default_db_path()).replace("/home/checkdocs", "~")
 

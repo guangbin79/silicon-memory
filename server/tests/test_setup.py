@@ -227,3 +227,27 @@ def test_run_setup_smoke_failure_exits(tmp_path, tiny_models, monkeypatch, capsy
     code, _ = setup_json(tmp_path, client=client)
     assert code == 1
     assert "冒烟失败" in capsys.readouterr().err
+
+
+# ---------------- 蒸馏选型（2026-11-17：≤6GiB → 1.7B）----------------
+
+def test_pick_distill_key_threshold():
+    assert setup_mod._pick_distill_key(None) == "distill"        # 探测失败维持既有 4B
+    assert setup_mod._pick_distill_key(6145) == "distill"
+    assert setup_mod._pick_distill_key(6144) == "distill_small"
+    assert setup_mod._pick_distill_key(4096) == "distill_small"
+
+
+def test_setup_full_small_card_installs_17b(monkeypatch, tmp_path, tiny_models, no_smoke):
+    """小卡 full 档：装 1.7B 且 config 写入 1.7B 路径（4B 件不下）。"""
+    _, small = fake_spec("distill_small")
+    monkeypatch.setitem(setup_mod.MODELS, "distill_small", small)
+    monkeypatch.setattr(setup_mod, "_card_total_mib", lambda: 4096)
+    specs = {**tiny_models, "distill_small": small}
+    client, holder = client_for(specs)
+    code, report = setup_json(tmp_path, ("--profile", "full"), specs=specs, client=client)
+    assert code == 0
+    assert report["installed"] == ["embed", "distill_small", "rerank"]
+    cfg = tomllib.loads((tmp_path / "config.toml").read_text(encoding="utf-8"))
+    assert cfg["distill_model"] == str(tmp_path / "models" / small.filename)
+    assert not (tmp_path / "models" / tiny_models["distill"].filename).exists()

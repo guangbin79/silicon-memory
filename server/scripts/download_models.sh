@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 下载蒸馏 + 重排双模型（嵌入模型见 download_model.sh）。
-#   蒸馏: unsloth/Qwen3-4B-Instruct-2507-GGUF Q4_K_M（非思考模型，原文消化成 typed facts）
+#   蒸馏: 按整卡总显存选型（与 server auto 同判据，2026-11-17）：
+#         >6GiB → unsloth/Qwen3-4B-Instruct-2507-GGUF Q4_K_M；≤6GiB → Qwen/Qwen3-1.7B-GGUF Q4_K_M
+#         （均非思考模型，原文消化成 typed facts；探测失败 → 4B 维持既有）
 #   重排: ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF
 #     重排模型必须用 ggml-org 官方转换：社区镜像常缺 cls/rank 头，
 #     打分全为垃圾（llama.cpp PR #9510/#15824 记录的转换陷阱）。
@@ -39,6 +41,15 @@ RERANK_URL="https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolv
 # 与 setup.py 固定常量表同源（2026-10-17 硬化：手动路径补供应链钉验）
 DISTILL_SHA="3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
 RERANK_SHA="22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48"
+# 1.7B：sha256 钉自本机真件（2026-11-17 HF 不可达未能对上游元数据复核）
+DISTILL_SMALL_FILE="Qwen3-1.7B-Q4_K_M.gguf"
+DISTILL_SMALL_URL="https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/${DISTILL_SMALL_FILE}"
+DISTILL_SMALL_SHA="b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897"
+TOTAL_MIB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || true)
+if [ -n "$TOTAL_MIB" ] && [ "$TOTAL_MIB" -le 6144 ] 2>/dev/null; then
+  DISTILL_FILE="$DISTILL_SMALL_FILE"; DISTILL_URL="$DISTILL_SMALL_URL"; DISTILL_SHA="$DISTILL_SMALL_SHA"
+  echo "整卡总显存 ${TOTAL_MIB}MiB ≤ 6144——蒸馏选 1.7B（与 server auto 同判据）"
+fi
 
 if [ "${1:-}" = "--check" ]; then
   rc=0
