@@ -45,7 +45,13 @@ ln -sfn "$R/bin/silicon-memory" "$HOME/.local/bin/silicon-memory"
 # 3. server venv（uv；零第三方依赖故轻快）＋ symlink
 if command -v uv >/dev/null 2>&1; then
   if [ ! -x "$R/server/venv/bin/semantic-memory" ]; then
-    (cd "$R/server" && rm -rf venv && uv venv venv && uv pip install --python venv/bin/python -e ".[vector,dev]")
+    # 在线 180s 超时兜底 ~/.local/backups/wheelhouse 离线装（弱网/断网可装；wheelhouse 由既有 venv 导出，same-ISA 资产）
+    WH="$HOME/.local/backups/wheelhouse"
+    (cd "$R/server" && rm -rf venv && uv venv venv && timeout 180 uv pip install --python venv/bin/python -e ".[vector,dev]") || {
+      echo "install: 在线拉依赖失败/超时——回退 wheelhouse 离线安装（$WH）" >&2
+      (cd "$R/server" && uv pip install --no-index --find-links "$WH" --python venv/bin/python -e ".[vector,dev]") || \
+        echo "install: wheelhouse 也不足——server 未装全，网络恢复后重跑本脚本" >&2
+    }
   fi
   [ -x "$R/server/venv/bin/semantic-memory" ] && \
     ln -sfn "$R/server/venv/bin/semantic-memory" "$HOME/.local/bin/semantic-memory"
@@ -53,19 +59,23 @@ else
   echo "install: uv 不在 PATH——语义记忆 server 未装（装 uv 后重跑本脚本）" >&2
 fi
 
-# 4b. embed 栈：llama-cpp CUDA 轮子是本地资产（非 PyPI 发布物）；缺 CUDA 库则从旧 venv 抄；都没有→BM25 降级
+# 4b. embed 栈：先探 venv 现状——llama_cpp 可导入即零操作；缺失才从 ~/.local/backups/ 的 CUDA 轮子补装
+#     （轮子是本地资产，非 PyPI 发布物）；缺 CUDA 库则从旧 venv 抄；都没有→BM25 降级
 if [ -x "$R/server/venv/bin/python" ]; then
-  WS=$(ls "$HOME"/.local/backups/llama_cpp_python-0.3.35-py3-none-*.whl 2>/dev/null | head -1 || true)
-  SP=$(ls -d "$R"/server/venv/lib/python3.*/site-packages 2>/dev/null | head -1)
-  OLDLL="$HOME/semantic-memory/venv/lib/python3.12/site-packages/llama_cpp/lib"
-  if [ -n "$WS" ] && [ -n "$SP" ]; then
-    uv pip install --python "$R/server/venv/bin/python" "$WS" >/dev/null 2>&1 || true
-    LL="$SP/llama_cpp/lib"
-    for so in libcudart.so.12 libcublas.so.12 libcublasLt.so.12; do
-      [ -e "$LL/$so" ] || cp "$OLDLL/$so" "$LL/" 2>/dev/null || true
-    done
-  else
-    echo "install: 本地 llama-cpp CUDA 轮子缺失（~/.local/backups/）——向量通道降级 BM25（补齐见 README）" >&2
+  if ! "$R/server/venv/bin/python" -c 'import llama_cpp' 2>/dev/null; then
+    WS=$(ls "$HOME"/.local/backups/llama_cpp_python-0.3.35-py3-none-*.whl 2>/dev/null | head -1 || true)
+    SP=$(ls -d "$R"/server/venv/lib/python3.*/site-packages 2>/dev/null | head -1)
+    OLDLL="$HOME/semantic-memory/venv/lib/python3.12/site-packages/llama_cpp/lib"
+    if [ -n "$WS" ] && [ -n "$SP" ]; then
+      timeout 60 uv pip install --python "$R/server/venv/bin/python" "$WS" >/dev/null 2>&1 || \
+        uv pip install --no-index --find-links "$HOME/.local/backups/wheelhouse" --python "$R/server/venv/bin/python" "$WS" >/dev/null 2>&1 || true
+      LL="$SP/llama_cpp/lib"
+      for so in libcudart.so.12 libcublas.so.12 libcublasLt.so.12; do
+        [ -e "$LL/$so" ] || cp "$OLDLL/$so" "$LL/" 2>/dev/null || true
+      done
+    else
+      echo "install: llama-cpp 缺失且本地 CUDA 轮子不在（~/.local/backups/）——向量通道降级 BM25（补齐见 README）" >&2
+    fi
   fi
 fi
 
@@ -98,10 +108,24 @@ esac
 touch "$RC"
 grep -q 'MEMORY_DATA_DIR=' "$RC" || printf '\nexport MEMORY_DATA_DIR="%s"\n' "$DATA" >> "$RC"
 
-# 7. 模型缺失提示（不自动拉大文件；路径按有效数据目录——改写前 config 的 SM_DATA_DIR，缺省 ~/.hotmem）
+# 7. 模型缺失：交互时询问下载（embedding＋distiller＋reranker 三个 GGUF，共数 GB，源 huggingface.co）；非交互保留提示
 if [ -z "$(ls "$EDATA/models" 2>/dev/null)" ]; then
-  echo "install: 语义记忆模型缺失——下载 embedding/distiller GGUF 至 $EDATA/models/（清单见 README）；未配模型时 server 以纯 BM25 运行，配置了模型但无 CUDA/显存不足时 server 将拒绝启动（原因见 discovery file）"
+  DL=0
+  if [ -t 0 ]; then
+    read -r -p "install: 语义记忆模型缺失——现在下载 3 个 GGUF 至 $EDATA/models/（数 GB）？[y/N]: " a
+    case "$a" in y|Y) DL=1 ;; esac
+  fi
+  if [ "$DL" = 1 ]; then
+    MEMORY_DATA_DIR="$EDATA" "$R/server/scripts/download_model.sh" && \
+      MEMORY_DATA_DIR="$EDATA" "$R/server/scripts/download_models.sh" || \
+      echo "install: 模型下载未完成——稍后手动：MEMORY_DATA_DIR=$EDATA server/scripts/download_model.sh && download_models.sh" >&2
+  else
+    echo "install: 语义记忆模型缺失——手动下载：MEMORY_DATA_DIR=$EDATA server/scripts/download_model.sh && server/scripts/download_models.sh；未配模型时 server 以纯 BM25 运行，配置了模型但无 CUDA/显存不足时 server 将拒绝启动（原因见 discovery file）"
+  fi
 fi
 
 echo "install: 完成。config=$CFGDIR/config  CLI=$(command -v silicon-memory || echo "$HOME/.local/bin/silicon-memory")"
-echo "install: opencode MCP 注册如缺失，见 README『接线』节"
+# 8. 插件就位自检（opencode 在用却缺插件才告警；无需 MCP 注册，见 README『接线』节）
+if [ "$OC_EXISTED" = 1 ] && [ ! -f "$HOME/.config/opencode/plugins/memory.ts" ]; then
+  echo "install: opencode 插件未部署——重跑本脚本或手动 cp（见 README『接线』节）" >&2
+fi
