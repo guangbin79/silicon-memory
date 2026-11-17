@@ -71,6 +71,12 @@ VRAM_PER_FILE_MIB = 2.8  # 每 MiB 权重的常驻显存系数（Q8 GGUF 锚点�
 VRAM_MARGIN = 1.2        # 判定余量：需 = 预估 × 1.2（吸收 nvidia-smi 记账差与迟到占用）
 RERANK_GGUF_NAME = "qwen3-reranker-0.6b-q8_0.gguf"  # auto 常规路径文件名（单一事实源）
 
+# ---- 蒸馏 auto 选型（2026-11-17）：整卡总显存 >6GiB → 4B，≤6GiB → 1.7B。
+# 用总显存非空闲：选型是卡级稳定属性，不随瞬时占用翻转（rerank 用空闲——那是启停判据，语义不同）。
+DISTILL_SMALL_GGUF_NAME = "Qwen3-1.7B-Q4_K_M.gguf"               # auto ≤6GiB 卡
+DISTILL_LARGE_GGUF_NAME = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"  # auto >6GiB 卡
+DISTILL_AUTO_LARGE_MIN_MIB = 6 * 1024
+
 
 def estimate_vram_mib(model_path: Path | None) -> int | None:
     """按权重文件大小预估常驻显存（MiB）；未配置/文件缺失 → None。"""
@@ -100,6 +106,13 @@ def auto_rerank_enabled(free_mib: int | None, device: str, *,
     if free_mib is None:
         return False
     return free_mib - embedder_mib >= vram_need_mib(rerank_mib)
+
+
+def auto_distill_model_name(total_mib: int | None, device: str) -> str | None:
+    """auto 蒸馏选型：>6GiB → 4B，≤6GiB → 1.7B；cpu/探测失败 → None（蒸馏关，不赌 OOM）。"""
+    if device == "cpu" or total_mib is None:
+        return None
+    return DISTILL_LARGE_GGUF_NAME if total_mib > DISTILL_AUTO_LARGE_MIN_MIB else DISTILL_SMALL_GGUF_NAME
 
 
 @dataclass(frozen=True)
@@ -133,7 +146,8 @@ class Config:
     rerank_candidates: int     # 送入重排的候选条数（RRF 融合后截取）
     rerank_budget_ms: int      # 单次 rerank 总预算（毫秒）；超时整体 fail-open
     # ---- 蒸馏（Qwen3-1.7B 非思考；调用面：flush_distill_queue + 三路触发）----
-    distill_model: Path | None  # Qwen3-1.7B GGUF；None → 蒸馏关闭（原文直存）
+    distill_model: Path | None  # 蒸馏 GGUF；None → 蒸馏关闭（原文直存）
+    distill_auto: bool          # True → 启动时按整卡总显存自动选型 1.7B/4B（auto 模式，2026-11-17）
     distill_batch: int          # distill_queue pending ≥ 此数即触发 flush；0 = 关闭批量触发
     # ---- 云端整合通道（OpenAI 兼容 /chat/completions；默认开 + 三道安全带）----
     cloud_base_url: str         # 端点；空 = 通道关闭
@@ -202,7 +216,13 @@ class Config:
         rerank_raw = rerank_raw.strip()
         rerank_auto = rerank_raw.lower() == "auto"
         rerank_model = "" if rerank_auto else rerank_raw
-        distill_model = opt("MEMORY_DISTILL_MODEL", "distill_model")
+        # 与 rerank 同三态（2026-11-17）：缺省/"auto" → 按整卡总显存选型；"" → 显式关；路径 → 显式开
+        distill_raw = opt("MEMORY_DISTILL_MODEL", "distill_model")
+        if distill_raw is None:
+            distill_raw = "auto"
+        distill_raw = distill_raw.strip()
+        distill_auto = distill_raw.lower() == "auto"
+        distill_model = "" if distill_auto else distill_raw
 
         db_path = Path(s("MEMORY_DB_PATH", "db_path") or default_db_path())
         discovery = opt("MEMORY_DISCOVERY_FILE", "discovery_file")
@@ -244,6 +264,7 @@ class Config:
             rerank_candidates=int(s("MEMORY_RERANK_CANDIDATES", "rerank_candidates", "20")),
             rerank_budget_ms=int(s("MEMORY_RERANK_BUDGET_MS", "rerank_budget_ms", "1500")),  # 500→1500：2026-10-29 实测真实 20 候选热态 ~490ms，500 纯赌运气；1500 覆盖含首载冷调用
             distill_model=Path(distill_model) if distill_model else None,
+            distill_auto=distill_auto,
             distill_batch=int(s("MEMORY_DISTILL_BATCH", "distill_batch", "20")),
             cloud_enabled=_bool(
                 "MEMORY_CLOUD_ENABLED", "cloud_enabled",

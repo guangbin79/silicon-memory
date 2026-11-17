@@ -35,12 +35,12 @@ from .web import INDEX_HTML
 from ._compat import HAS_NUMPY, INSTALL_HINT
 from . import gpu_breaker
 from .cloud import Consolidator
-from .config import (RERANK_GGUF_NAME, Config, auto_rerank_enabled,
+from .config import (RERANK_GGUF_NAME, Config, auto_distill_model_name, auto_rerank_enabled,
                      estimate_vram_mib, vram_need_mib)
 from .consistency import run_sweep
 from .db import MemoryStore
 from .distiller import Distiller
-from .embedder import Embedder, _card_free_mib
+from .embedder import Embedder, _card_free_mib, _card_total_mib
 from .graph import cross_project_extras, graph_edges
 from .hybrid import hybrid_recall
 from .noise import is_task_event_noise
@@ -158,6 +158,17 @@ def _build_core() -> dict:
         log.info("rerank auto: device=%s free=%sMiB 嵌入器预留=%dMiB 重排需=%dMiB → %s",
                  cfg.device, free_mib, embedder_mib, vram_need_mib(rerank_mib),
                  "重排启用" if rerank_on else "重排关闭（显存装不下）")
+    # 蒸馏 auto 选型落地（2026-11-17）：整卡总显存 >6GiB → 4B，≤6GiB → 1.7B；文件缺失/探测失败 → 关
+    distill_path = cfg.distill_model
+    if distill_path is None and cfg.distill_auto:
+        total_mib = _card_total_mib() if cfg.device != "cpu" else None
+        name = auto_distill_model_name(total_mib, cfg.device)
+        candidate = default_model_path(name) if name else None
+        if candidate is not None and candidate.is_file():
+            distill_path = candidate
+        log.info("distill auto: device=%s total=%sMiB → %s",
+                 cfg.device, total_mib,
+                 f"蒸馏启用 {candidate.name}" if distill_path else "蒸馏关闭（无卡/探测失败/模型文件缺失）")
     embedder = Embedder(cfg.model_path, dim=cfg.embed_dim, device=cfg.device)
     return {
         "cfg": cfg, "store": store, "embedder": embedder,
@@ -165,7 +176,7 @@ def _build_core() -> dict:
         # Reranker/Distiller 各持私有槽，单 occupant 永不换载。
         "reranker": Reranker(rerank_path, device=cfg.device,
                               budget_ms=cfg.rerank_budget_ms),
-        "distiller": Distiller(cfg.distill_model, cfg.device),
+        "distiller": Distiller(distill_path, cfg.device),
         "consolidator": Consolidator(
             cfg.cloud_base_url, cfg.cloud_api_key, cfg.cloud_model,
             enabled=cfg.cloud_enabled, daily_max_calls=cfg.cloud_daily_max_calls,
