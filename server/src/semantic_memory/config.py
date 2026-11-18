@@ -130,6 +130,7 @@ class Config:
     recall_min_cosine: float   # 纯向量命中（无 BM25 支持）的余弦门限；0 = 关闭
     recall_max_cosine: float   # 冗余上限：纯向量命中 cos 高于此值出局（过近=冗余）；1.0 = 关闭
     recall_min_rerank: float   # 统一相关度门：当前查询重排分低于此值出局；0 = 关闭（纯 BM25/重排关闭部署不受影响）
+    conflict_min_sim: float    # decision 冲突聚簇候选余弦阈值（高置信近邻，非 lifecycle.NEAR_LO 介入带下沿）；无 0=关闭档——0.0＝全标，想几乎关闭设 1.0
     # ---- 跨项目图谱（查询侧派生边：取代链/共注入/同义跨域；见 graph.py）----
     cross_project: bool       # MEMORY_CROSS_PROJECT=0 关闭（默认开）
     cross_limit: int          # /recall 项目查询追加的跨项目条目上限（不占主配额）
@@ -233,6 +234,9 @@ class Config:
             discovery_file = None
         else:
             discovery_file = Path(discovery)
+        conflict_min_sim = float(s("MEMORY_CONFLICT_MIN_SIM", "conflict_min_sim", "0.90"))
+        if not 0.0 <= conflict_min_sim <= 1.0:
+            raise ValueError(f"conflict_min_sim 应在 0~1，得到 {conflict_min_sim}")
         return cls(
             db_path=db_path,
             host=s("MEMORY_HOST", "host", "127.0.0.1"),
@@ -247,6 +251,7 @@ class Config:
             recall_min_cosine=float(s("MEMORY_RECALL_MIN_COSINE", "recall_min_cosine", "0.45")),
             recall_max_cosine=float(s("MEMORY_RECALL_MAX_COSINE", "recall_max_cosine", "0.92")),
             recall_min_rerank=float(s("MEMORY_RECALL_MIN_RERANK", "recall_min_rerank", "0.5")),
+            conflict_min_sim=conflict_min_sim,
             cross_project=_bool(
                 "MEMORY_CROSS_PROJECT", "cross_project",
                 True, lambda v: v != "0"),

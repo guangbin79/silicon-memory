@@ -131,6 +131,24 @@ def test_recall_min_rerank_threshold_parsing(monkeypatch, tmp_path):
     assert Config.from_env().recall_min_rerank == 0.7   # 文件档（TOML 原生 float）
 
 
+def test_conflict_min_sim_threshold_parsing(monkeypatch, tmp_path):
+    """decision 冲突聚簇候选阈值：缺省 0.90；env 可覆盖；越 0~1 fail-fast；
+    env/file 两档同通道（与 recall_min_rerank 数值档同风格）。"""
+    dd = _data_dir(monkeypatch, tmp_path)
+    assert Config.from_env().conflict_min_sim == 0.90  # 缺省 0.90
+    monkeypatch.setenv("MEMORY_CONFLICT_MIN_SIM", "0.85")
+    assert Config.from_env().conflict_min_sim == 0.85  # env 覆盖
+    monkeypatch.setenv("MEMORY_CONFLICT_MIN_SIM", "1.1")
+    with pytest.raises(ValueError):                    # >1 越界 fail-fast
+        Config.from_env()
+    monkeypatch.setenv("MEMORY_CONFLICT_MIN_SIM", "-0.1")
+    with pytest.raises(ValueError):                    # <0 越界 fail-fast
+        Config.from_env()
+    monkeypatch.delenv("MEMORY_CONFLICT_MIN_SIM")
+    _write_toml(dd, "conflict_min_sim = 0.88\n")
+    assert Config.from_env().conflict_min_sim == 0.88  # 文件档（TOML 原生 float）
+
+
 def test_server_startup_fails_naming_bad_config_file(tmp_path):
     """语法错 → 物化即失败（属性访问触发 from_env）且错误指明文件。"""
     dd = tmp_path / "bad"

@@ -207,6 +207,7 @@ Service:
 | `MEMORY_CROSS_PROJECT` | `1` | Cross-project graph: append same-origin solutions from project B to project recalls; `=0` off |
 | `MEMORY_CROSS_LIMIT` | `2` | Cap on cross-project extras (never counted against the main quota) |
 | `MEMORY_CROSS_SIM` | `0.90` | Cosine threshold for cross-project synonym edges |
+| `MEMORY_CONFLICT_MIN_SIM` | `0.90` | Cosine threshold for same-project decision conflict clustering candidates at `/recall` (high-confidence near-duplicates only; similarity ≠ contradiction, human adjudicates) |
 | `MEMORY_INJECT_BOOST` | `0.15` | Telemetry feedback: score × (1 + α·ln(1+injections)); `0` = off |
 | `MEMORY_RERANK_MODEL` | `~/semantic-memory/models/qwen3-reranker-0.6b-q8_0.gguf` | Reranker GGUF (**ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF only** — official conversion, community builds may lack the rank head); default = `auto` — at startup (before any model load) free VRAM ≥ 5312 MiB (2026-10-29 spike: 3-model residency 4800 + 512 margin) → rerank on (3 models resident), else off (2 models); set a path to force on, empty to disable |
 | `MEMORY_RERANK_CANDIDATES` | `20` | Top-N RRF candidates fed to the reranker |

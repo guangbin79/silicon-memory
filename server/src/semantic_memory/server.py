@@ -45,7 +45,6 @@ from .graph import cross_project_extras, graph_edges
 from .hybrid import hybrid_recall
 from .noise import is_task_event_noise
 from .lifecycle import (
-    NEAR_LO,
     backfill_vectors,
     enqueue_raw,
     flush_distill_queue,
@@ -245,16 +244,17 @@ def _recall_hits(query: str, limit: int, project: str | None, global_limit: int)
             store, merged, project=project,
             cross_sim=cfg.cross_sim, limit=cfg.cross_limit)
             if e["uid"] not in seen]
-    _mark_decision_conflicts(merged)
+    _mark_decision_conflicts(merged, min_sim=cfg.conflict_min_sim)
     return merged
 
 
-def _mark_decision_conflicts(hits: list[dict]) -> None:
-    """C 冲突聚簇标注：同 project 的 decision 条目两两余弦 ≥ NEAR_LO → conflict=True。
+def _mark_decision_conflicts(hits: list[dict], min_sim: float = 0.90) -> None:
+    """C 冲突聚簇标注：同 project 的 decision 条目两两余弦 ≥ min_sim → conflict=True。
 
     机器只做候选发现（向量与 kind 都在库内，零新模型）；裁决交给当场有上下文
     的 agent（注入块尾 supersede 指引，插件面渲染）。无 numpy / 无向量 / 不足
-    两条 → 静默跳过。阈值复用 lifecycle.NEAR_LO（近邻介入带下沿，语义同源）。
+    两条 → 静默跳过。独立高置信近邻阈值（默认 0.90，MEMORY_CONFLICT_MIN_SIM
+    可配）：候选冲突信号≈近重复/同题决策，不复用 lifecycle.NEAR_LO 介入带下沿。
     """
     if not HAS_NUMPY:
         return
@@ -274,7 +274,7 @@ def _mark_decision_conflicts(hits: list[dict]) -> None:
         sims = m @ m.T
         for a in range(len(pair)):
             for b in range(a + 1, len(pair)):
-                if float(sims[a, b]) >= NEAR_LO:
+                if float(sims[a, b]) >= min_sim:
                     pair[a][0]["conflict"] = True
                     pair[b][0]["conflict"] = True
 

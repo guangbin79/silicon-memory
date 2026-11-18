@@ -583,22 +583,26 @@ def test_ingest_explicit_git_repo_keeps_normalized_key(client, monkeypatch):
 # ---------------- C 冲突聚簇：阈值与分域边界 ----------------
 
 def test_recall_conflict_threshold_boundary(client):
-    """C 边界：余弦 ≥ NEAR_LO（0.60）标、< 不标——两 project 各一对双侧取样。"""
+    """C 边界：独立阈值 0.90——cos 0.901 标、0.899 不标（各 project 分别取样）。
+
+    向量整体置于负象限：与套件内其余正向量点积全负，不产生 cross_sim
+    synonym 边挤占他测的 cross_limit 附加位（0.901 方向与 [0.9,0.3] 点积
+    0.941 的教训）。
+    """
     import math
-    for proj, dot in (("bound-a", 0.61), ("bound-b", 0.59)):
-        v1 = [1.0, 0.0]
-        v2 = [dot, math.sqrt(1.0 - dot * dot)]
+    for proj, dot, want in (("bound-a", 0.901, True), ("bound-b", 0.899, False)):
+        v1 = [-1.0, 0.0]
+        v2 = [-dot, -math.sqrt(1.0 - dot * dot)]
         server.store.store(f"边界对决策一 {proj} BndA", kind="decision",
                            project=proj, embedding=v1)
         server.store.store(f"边界对决策二 {proj} BndB", kind="decision",
                            project=proj, embedding=v2)
-    r = client.post("/recall", json={
-        "query": "边界对决策", "limit": 10, "project": "bound-a",
-        "global_limit": 0})
-    hits = r.json()["hits"]
-    flagged = {h["project"]: h.get("conflict") for h in hits}
-    assert flagged.get("bound-a") is True    # 0.61 ≥ 0.60 → 标
-    assert flagged.get("bound-b") is None    # 0.59 < 0.60 → 不标（字段不出现）
+        r = client.post("/recall", json={
+            "query": "边界对决策", "limit": 10, "project": proj,
+            "global_limit": 0})
+        hits = [h for h in r.json()["hits"] if h.get("project") == proj]
+        assert len(hits) == 2
+        assert all(bool(h.get("conflict")) is want for h in hits)
 
 
 def test_recall_conflict_same_topic_cross_project_unflagged(client):
@@ -629,7 +633,7 @@ def test_recall_conflict_global_decisions_not_scanned(client):
 # ---------------- C 冲突聚簇标注：同 project 高相似 decision 对 ----------------
 
 def test_recall_flags_conflicting_decisions(client):
-    """同 project 两条 decision 向量相似 ≥ NEAR_LO → hits 带 conflict 标记
+    """同 project 两条 decision 向量相似 ≥ conflict_min_sim（默认 0.90）→ hits 带 conflict 标记
     （机器只做候选发现，裁决交给当场有上下文的 agent）。"""
     server.store.store("决策甲：构建入口统一用 make CconfA", kind="decision",
                        project="conf-proj", embedding=[1.0, 0.1])

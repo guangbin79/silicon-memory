@@ -176,6 +176,7 @@ wal_checkpoint，逐文件 sha256 校验，旧服务还在跑则拒迁，旧目�
 | `MEMORY_CROSS_PROJECT` | `1` | 跨项目图谱：项目召回后追加 B 项目同源解法；`=0` 关闭 |
 | `MEMORY_CROSS_LIMIT` | `2` | 跨项目附加条目上限（不占主配额） |
 | `MEMORY_CROSS_SIM` | `0.90` | synonym 边的跨项目近邻余弦阈值 |
+| `MEMORY_CONFLICT_MIN_SIM` | `0.90` | `/recall` 同项目 decision 冲突聚簇候选阈值（仅高置信近邻；相似≠矛盾，裁决在人） |
 | `MEMORY_INJECT_BOOST` | `0.15` | 遥测反哺：score × (1 + α·ln(1+注入次数))；`0` = 关闭 |
 | `MEMORY_RERANK_MODEL` | `~/semantic-memory/models/qwen3-reranker-0.6b-q8_0.gguf` | 重排 GGUF（**仅 ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF**——官方转换，社区镜像可能缺 rank 头）；默认 `auto`——启动时（任何模型加载前）空闲显存 ≥ 5312 MiB（2026-10-29 spike 校准：三模型常驻 4800＋余量 512）→ 3 模型常驻重排开，否则 2 模型常驻重排关；设路径强制开，设空禁用 |
 
