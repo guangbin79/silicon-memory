@@ -6,3 +6,4 @@
 |--------|-------------|--------------|------------------|
 | cli-retrieval-entry | CLI 检索入口语义：`memory query` 是 dedup 查重别名，跨层检索真入口是 `knowledge query` | ./docs/agents/knowledge/modules/cli-retrieval-entry.md | ./docs/agents/knowledge/modules/ |
 | unified-lifecycle | 统一生命周期控制面：`load/settle/maintain/promote/retire` 为公开根命令，旧 `memory`/`knowledge` 为兼容适配器；夜间调度单一拥有者（外部 02:00 `maintain --apply`＋`MEMORY_NOISE_SWEEP_AT=off`） | ./docs/agents/knowledge/modules/unified-lifecycle.md | ./docs/agents/knowledge/modules/ |
+| injection-quality | /recall 出口质量门（回执噪声过滤＋MEMORY_RECALL_MIN_RERANK 相关度门）与 opencode 注入块格式/TUI 展示边界：面板剥壳、模型上下文保留完整 `<semantic-memory>` 边界 | ./docs/agents/knowledge/modules/injection-quality.md | ./docs/agents/knowledge/modules/ |

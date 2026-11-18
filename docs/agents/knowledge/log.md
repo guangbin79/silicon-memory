@@ -6,3 +6,6 @@
 ## [2026-11-11] ingest | unified-lifecycle
 - 沉淀统一生命周期控制面结论：公开面＝load/settle/maintain/promote/retire 根命令（不加 cycle 前缀），旧 memory/knowledge 为兼容适配器；夜间调度单一拥有者（外部 02:00 maintain --apply＋MEMORY_NOISE_SWEEP_AT=off，standalone 留内置 03:30）；热维护走本地 semantic-memory CLI 不依赖 HTTP token；集成测试夹具须 git 化带独立 origin @f8ea3e1 @5a25c4a @cd8adf0(dotfiles) @772736e @3a88c2e
 - Types: Decision/Strategy/Bug Experience/Module Info
+## [2026-11-18] ingest | injection-quality
+- 沉淀热记忆注入质量门与展示格式结论：/recall 出口统一终门（is_task_event_noise 过滤历史回执＋MEMORY_RECALL_MIN_RERANK 默认 0.5、低分整条丢弃、gate_degraded 停注入保手动查询）；注入块元数据前置＋正文缩进＋meta 折行防伪造列 0；TUI 只剥面板壳而模型上下文永远保留完整 <semantic-memory> 边界；冲突指引退役入口修正为 memory_supersede/silicon-memory retire @c4b8d15 @7446ee3 @65d3dd8 @64850c9 @7d3a98a @e57f266 @f5322ef
+- Types: Decision/Strategy/Bug Experience/Module Info
