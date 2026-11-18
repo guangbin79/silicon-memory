@@ -451,7 +451,6 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
         project=resolve_project(raw_project),
         global_limit=global_limit,
     )
-    _record_recall((time.perf_counter() - t0) * 1000.0)
     # 读口噪声过滤：入口闸（rest_ingest）之前的存量任务回执不返回——库不删，
     # 只不返回；判定核与入口同一 is_task_event_noise（宁漏勿误口径不变）
     kept = [h for h in hits if not is_task_event_noise(h["content"])]
@@ -483,6 +482,8 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
             if low_uids:
                 filter_stats["low_score"] = len(low_uids)
                 hits = [h for h in hits if h["uid"] not in low_uids]
+    # 门后计时：含噪声过滤与补打分（可耗 rerank 预算）——p95/告警须覆盖真实请求时延
+    _record_recall((time.perf_counter() - t0) * 1000.0)
     out = {"hits": hits}
     if filter_stats:
         out["filter_stats"] = filter_stats
