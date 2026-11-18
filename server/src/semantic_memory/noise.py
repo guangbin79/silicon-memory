@@ -33,9 +33,11 @@ _BOILERPLATE = (
 )
 
 # 凭据硬拒（安全优先宁滥勿漏，独立短路；IGNORECASE 防 TOKEN: 变体、
-# ["']? 防 JSON 引号包装；无裁判直存路径残留见评审 A-W1）
+# ["']? 防 JSON 引号包装；分隔符可为 :/=/：/空白/is——2026-11-18 live 无
+# 冒号 "token <hex>"/"with token <hex>" 残留变体；无裁判直存残留见评审 A-W1）
 _CREDENTIAL_TOKEN = re.compile(
-    r"[\"']?token[\"']?\s*[:：]\s*[\"']?[0-9a-zA-Z_\-]{40,}", re.IGNORECASE)
+    r"[\"']?token[\"']?(?:\s*(?:[:=：]|\bis\b)\s*|\s+)[\"']?"
+    r"[0-9a-zA-Z_\-]{40,}", re.IGNORECASE)
 # 凭据 artifact 明文形态（2026-11-18 live /recal 实证，安全优先）：行首
 # credential（IGNORECASE 兼小写）＋可选引导词（:/token/for task）＋任务号
 # （可无 token——裸 Credential ag-x 亦是派发凭据回显）或 token/is/=/: 后
