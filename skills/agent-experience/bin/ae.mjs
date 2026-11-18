@@ -754,6 +754,74 @@ function cmdSelfcheck() {
       const parsedBlank = JSON.parse(kq.out);
       ok(kq.rc === 0 && parsedBlank.experiences.length === 0 && parsedBlank.knowledge.length === 0,
         'knowledge query 纯空白: 无有效词元 → 双层空 rc0');
+
+      // Tier 1 union merge 规则（ensureUnionMergeRules，repoRoot＝自 kroot 上行首个含 .git 的目录）：
+      // 生产布局夹具 <fixture>/repo/.git 标记目录＋repo/docs/agents/knowledge——断言 .gitattributes 落 repo 根而非 docs/agents
+      {
+        const repo = path.join(fixture, 'repo');
+        fs.mkdirSync(path.join(repo, '.git'), { recursive: true }); // .git 标记目录（生产布局，非 git init）
+        const kprod = path.join(repo, 'docs', 'agents', 'knowledge');
+        fs.mkdirSync(kprod, { recursive: true });
+        const ga = path.join(repo, '.gitattributes');
+        fs.rmSync(ga, { force: true });
+        const resCreate = ensureUnionMergeRules(kprod);
+        const createText = fs.readFileSync(ga, 'utf8');
+        ok(resCreate.appended.length === 2 && createText === UNION_MERGE_RULES.join('\n') + '\n'
+          && !fs.existsSync(path.join(kprod, '..', '.gitattributes')),
+          'union rule create: 无 .gitattributes 新建恰两行');
+        const createBytes = fs.readFileSync(ga);
+        const resRe = ensureUnionMergeRules(kprod);
+        const idemCreate = resRe.appended.length === 0 && fs.readFileSync(ga).equals(createBytes);
+        const lfsLines = [
+          'data/icons/** filter=lfs diff=lfs merge=lfs -text',
+          'assets/**/*.bin filter=lfs diff=lfs merge=lfs -text',
+          'media/*.psd filter=lfs diff=lfs merge=lfs -text',
+        ];
+        fs.writeFileSync(ga, lfsLines.join('\n') + '\n');
+        const resAppend = ensureUnionMergeRules(kprod);
+        const afterLines = fs.readFileSync(ga, 'utf8').split('\n');
+        ok(resAppend.appended.length === 2 && afterLines.filter(Boolean).length === 5
+          && lfsLines.every((l, i) => afterLines[i] === l),
+          'union rule append: LFS 行逐字保留仅追加缺失');
+        fs.writeFileSync(ga, [
+          '*.bin filter=lfs diff=lfs merge=lfs -text',
+          `${UNION_MERGE_RULES[0]}\r`,
+          '*.png filter=lfs diff=lfs merge=lfs -text',
+          UNION_MERGE_RULES[1],
+        ].join('\n') + '\n');
+        const seedBytes = fs.readFileSync(ga);
+        const resIdem = ensureUnionMergeRules(kprod);
+        const idemSeed = resIdem.appended.length === 0 && fs.readFileSync(ga).equals(seedBytes);
+        ok(idemCreate && idemSeed, 'union rule idempotent: 二次运行零改字节');
+
+        // B 册终闸回归：既有内容非 UTF-8 字节保真；写失败（.gitattributes 为目录）降级不崩
+        fs.writeFileSync(ga, Buffer.from('# \xc4\xe3\xba\xc3 GBK\n*.bin filter=lfs diff=lfs merge=lfs -text\n', 'latin1'));
+        const gbkSeed = fs.readFileSync(ga);
+        const resBin = ensureUnionMergeRules(kprod);
+        const afterBin = fs.readFileSync(ga);
+        ok(resBin.appended.length === 2 && afterBin.subarray(0, gbkSeed.length).equals(gbkSeed)
+          && afterBin.subarray(gbkSeed.length).toString('utf8') === `${UNION_MERGE_RULES.join('\n')}\n`,
+          'union rule bytes: 非 UTF-8 既有内容字节保真仅追加');
+        fs.rmSync(ga);
+        fs.mkdirSync(ga);
+        ok(ensureUnionMergeRules(kprod).appended.length === 0, 'union rule degrade: .gitattributes 非常规文件（目录）→ 不崩且零追加');
+        fs.rmSync(ga, { recursive: true, force: true });
+
+        // 裁定 B：上行到底无 .git → 保守跳过（零写入），lint 行 skipped 且 rc 不变
+        const nogit = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-nogit-'));
+        const knogit = path.join(nogit, 'knowledge');
+        fs.mkdirSync(path.join(knogit, 'modules'), { recursive: true });
+        fs.writeFileSync(path.join(knogit, 'knowledge-index.md'), idxText);
+        fs.writeFileSync(path.join(knogit, 'log.md'), '# Knowledge Log\n');
+        fs.writeFileSync(path.join(knogit, 'modules', 'auth.md'), '# Auth\n');
+        fs.writeFileSync(path.join(knogit, 'modules', 'cache.md'), '# Cache\n');
+        const skipRes = ensureUnionMergeRules(knogit);
+        const klSkip = cmdKnowledgeLint(knogit);
+        ok(skipRes.appended.length === 0 && !fs.existsSync(path.join(nogit, '.gitattributes'))
+          && klSkip.rc === 0 && klSkip.out.includes('union merge rule: skipped (no git root)'),
+          'union rule skip: 上行无 .git → 跳过零写入且 lint rc 不变');
+        fs.rmSync(nogit, { recursive: true, force: true });
+      }
     }
 
     // supersede/promote：标记写入＋幂等＋查询滤除＋标记后 validate 仍过（warm-supersede-marking）
@@ -1007,8 +1075,9 @@ function cmdVerifyAnchors(store, rate) {
 // ---- knowledge：unified-memory 跨层只读面（sidecar Phase 3）——experiences 层复用 dedup 命中语义，
 //      knowledge 层＝docs/agents/knowledge 的 modules/**/*.md＋knowledge-index.md；root 解析＝
 //      $AE_KNOWLEDGE_PATH > 自 cwd 向上找 docs/agents/knowledge（project-compound 的 ./docs 相对语义）。
-//      lint 只做机械可判定面（Tier 1 索引双向一致＋bootstrap 在场＋Tier 2 断链），只读报告；
-//      Tier 1 auto-fix 与 Tier 2/3 语义判断（矛盾/过期/orphan）归 project-compound Lint 过程 ----
+//      lint 只做机械可判定面（Tier 1 索引双向一致＋bootstrap 在场＋union merge 规则＋Tier 2 断链）；
+//      唯一写动作＝Tier 1 union merge 规则 auto-fix（ensureUnionMergeRules，尾追加）；
+//      Tier 2/3 语义判断（矛盾/过期/orphan）归 project-compound Lint 过程 ----
 function resolveKnowledgePath() {
   if (process.env.AE_KNOWLEDGE_PATH) return process.env.AE_KNOWLEDGE_PATH;
   let dir = process.cwd();
@@ -1109,6 +1178,40 @@ function scanBrokenLinks(kroot, pages) {
   return findings;
 }
 
+// Tier 1 union merge 规则：log.md/feedback.md 为 append-only 日志——merge=union 免并行追加丢行；
+// 行级 trim 等性判在场（位置无关，容忍 CRLF/行尾空白），缺失只在文件尾追加，永不改删既有行
+const UNION_MERGE_RULES = ['docs/agents/knowledge/log.md merge=union', 'docs/agents/knowledge/feedback.md merge=union'];
+
+function ensureUnionMergeRules(knowledgeRoot) {
+  // 规则 pattern 为 repo 根相对：repoRoot＝自 knowledgeRoot 上行首个含 .git 的目录（同 scanBrokenLinks 探测语义）；
+  // 上行到底仍无 .git → 保守跳过（零写入，裁定 B）
+  let repoRoot = null;
+  for (let d = knowledgeRoot; d !== path.dirname(d); d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) { repoRoot = d; break; }
+  }
+  if (repoRoot === null) return { appended: [], skipped: true };
+  const ga = path.join(repoRoot, '.gitattributes');
+  let existing = '';
+  try { existing = fs.readFileSync(ga).toString('latin1'); } catch {} // latin1 字节保真：非 UTF-8 既有内容读写零损耗（B 册终闸）
+  const present = new Set(existing.split('\n').map((l) => l.trim()));
+  let out = existing;
+  const appended = [];
+  for (const rule of UNION_MERGE_RULES) {
+    if (present.has(rule)) continue;
+    if (out !== '' && !out.endsWith('\n')) out += '\n'; // 既有内容无尾换行先补一（永不粘行）
+    out += `${rule}\n`;
+    appended.push(rule);
+  }
+  if (appended.length) {
+    try { fs.writeFileSync(ga, Buffer.from(out, 'latin1')); } catch (e) {
+      // 写失败降级不崩：rc 语义不变（union 不入 findings），stderr 告警不污染 stdout 契约（B 册终闸）
+      process.stderr.write(`union merge rule: 追加失败（${ga} 只读或非常规文件？）: ${e.message}\n`);
+      return { appended: [] };
+    }
+  }
+  return { appended };
+}
+
 function cmdKnowledgeLint(kroot) {
   const findings = [];
   const indexText = readOk(path.join(kroot, 'knowledge-index.md'));
@@ -1122,7 +1225,12 @@ function cmdKnowledgeLint(kroot) {
     for (const n of names) if (!stems.includes(n)) findings.push(`DEAD_INDEX_ENTRY 索引行 ${n} 无对应 modules/${n}.md（Tier 1：Description 前缀 [MISSING]，永不删行）`);
   }
   findings.push(...scanBrokenLinks(kroot, pages));
-  const out = [...findings, `knowledge lint: ${findings.length} findings（机械面：Tier 1 索引双向＋bootstrap＋Tier 2 断链，只读；auto-fix 与语义判断层归 project-compound Lint 过程）`].join('\n') + '\n';
+  const union = ensureUnionMergeRules(kroot); // Tier 1 auto-fix：不增 findings，rc 语义不变（无 git 根＝保守跳过）
+  const unionLine = union.skipped ? 'union merge rule: skipped (no git root)'
+    : union.appended.length
+      ? `union merge rule: appended(${union.appended.map((l) => path.basename(l.split(' ')[0])).join(', ')})`
+      : 'union merge rule: ok';
+  const out = [...findings, unionLine, `knowledge lint: ${findings.length} findings（机械面：Tier 1 索引双向＋bootstrap＋union merge 规则 auto-fix＋Tier 2 断链；Tier 2/3 语义判断层归 project-compound Lint 过程）`].join('\n') + '\n';
   return { rc: findings.length ? 1 : 0, out };
 }
 
@@ -1143,7 +1251,7 @@ function usage() {
     '  score                    e-thresholds v0 确定性评分（stdout-only 只读；per-skill helped/counter/机会分母＋reuses 全域＋events 行数；两跑逐字节一致）',
     '  verify-anchors [--sample <0..1>]  skill-uses anchors 抽查（dotfiles-sha＝git cat-file -e；foreign 标 unverifiable-locally；violation 即 rc1）',
     '  knowledge query "<词>"   跨层检索：experiences（store）＋docs/agents/knowledge（modules/*.md＋knowledge-index.md），输出 {experiences,knowledge,knowledge_root}',
-    '  knowledge lint           知识库机械检查（Tier 1 索引双向一致＋bootstrap＋Tier 2 断链；root＝AE_KNOWLEDGE_PATH > 自 cwd 向上 docs/agents/knowledge）',
+    '  knowledge lint           知识库机械检查（Tier 1 索引双向＋bootstrap＋union merge 规则 auto-fix＋Tier 2 断链；root＝AE_KNOWLEDGE_PATH > 自 cwd 向上 docs/agents/knowledge）',
     '  selfcheck                临时夹具 store 自检（含 legacy 无 summary 行）',
     `  默认 store: ${resolveDefaultStore()}（--store 覆盖；评测一律显式传 --store）`,
     '',
