@@ -100,6 +100,9 @@ NOISE_SAMPLES = [
     f"Agora session credential gt-test01 with token {'a' * 64}",
     f"Token {'b' * 64} ag-test02 with token {'b' * 64}",
     f"agora credential with token {'c' * 64}",
+    # 复数 tokens 形态（终闸 C-W1）：无冒号＋冒号两型，单数已拒、复数同拒
+    f"access tokens {'a' * 64}",
+    f"Tokens: {'b' * 64}",
     # 任务回执残留变形（2026-11-18 live /recall 实证）：无空格中文连写、
     # Verification task 引导词、已合并但后紧接续文、交付失败注解
     "任务ag-e0478b已验证中",
@@ -148,6 +151,10 @@ KEEP_SAMPLES = [
     "OAuth credential rotation policy: rotate every 90 days",
     # 无冒号 token 反例：token 一词＋普通续文（无 ≥40 secret 形值）不误杀
     "OAuth credential rotation policy says refresh tokens before expiry",
+    # 跨行反例（终闸 B-W1）：空白/is 分隔限行内——「行尾 token＋次行行长串」
+    # （SHA-256 空串公开常量）与「token is＋换行后长串」不整条误杀
+    "How to store the token\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b9dca955fb855",
+    "the token is\n" + "b" * 48,
     # 回执变形引导词/动词的询问反例：无紧随回执形态不误杀
     "验证任务 ag-e2cbf3 的流程是什么",
     "任务 ag-e2cbf3 交付失败的原因可能有哪些",
