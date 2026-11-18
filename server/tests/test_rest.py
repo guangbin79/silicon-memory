@@ -757,6 +757,20 @@ def test_recall_filters_legacy_task_receipts(client):
     assert body["filter_stats"]["noise"] >= 1
 
 
+def test_recall_filters_entered_verification_receipt(client):
+    """验证门回执变体（已进入/entered/多任务并列）绕过入口闸直接落库时，
+    /recall 出口同样滤除：只返回同关键词知识行、filter_stats.noise 计数。"""
+    server.store.store("任务 ag-e0478b 已进入验证门（verify 运行中）",
+                       kind="fact", project=None)
+    uid = server.store.store("验证门流程要人工复核的知识行 QXng2",
+                             kind="fact", project=None)
+    body = client.post("/recall", json={"query": "验证门", "limit": 5}).json()
+    hits = body["hits"]
+    assert uid in {h["uid"] for h in hits}
+    assert all("已进入验证门" not in h["content"] for h in hits)  # 回执不注入
+    assert body["filter_stats"]["noise"] >= 1
+
+
 # ---------------- 统一相关度门：rerank 分阈值（MEMORY_RECALL_MIN_RERANK） ----------------
 
 class _GateReranker:

@@ -71,6 +71,11 @@ NOISE_SAMPLES = [
     # 边界缺口回归（2026-11）：动词后接全角左括号注解——边界字符集原只认
     # 右括号（ASCII/全角），agorad 取消回执带（actor=ses_…）整条漏拒
     "任务 ag-7a77d3 已取消（actor=ses_e1e5b3c00ffehOog8TPs0Nvhkz）",
+    # 验证门回执变体（2026-11-18 live /recall 实证，旧 106 条清扫后仍注入）：
+    # 中文「已进入」、英文 entered、多任务并列三形态
+    "任务 ag-e0478b 已进入验证门（verify 运行中）",
+    "Task ag-a736c6 entered verification stage and is currently running.",
+    "任务 ag-f80309 和 ag-e7e28d 已进入验证门，需等待其 verify 结果。",
 ]
 
 KEEP_SAMPLES = [
@@ -94,6 +99,7 @@ KEEP_SAMPLES = [
     "部署看板见 page: docs/deploy.md，env: staging 的根因分析是证书过期",
     # 原话优先锚定：用户真实消息以任务号开头、无紧随里程碑动词 → 不误拒
     "任务 ag-e2cbf3 的验收命令是什么",
+    "任务 ag-e2cbf3 的验证门流程是什么",
     "任务 ag-e2cbf3 的 goal 写错了，帮我改一下",
     # 动词后接非边界续文（疑问/叙述续文非回执形态）→ 不误拒
     "任务 ag-b7d20c 被取消了吗？",

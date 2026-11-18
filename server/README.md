@@ -456,7 +456,8 @@ single-entry forget lives in the web UI / `DELETE /api/memories/{uid}`.
 - **Task-event noise gate** (capture-side, in the write path): task-state
   receipts are rejected at `/ingest` and stripped from distill input —
   including agora milestone relays matched by content shape (task-id lead +
-  adjacent milestone verb, e.g. `任务 ag-x merged` / `已入验证门`), which no
+  adjacent milestone verb, e.g. `任务 ag-x merged` / `已入验证门` /
+  `已进入验证门` / `entered verification`), which no
   prefix table alone can cover. Credential filtering always takes precedence;
   the nightly noise sweep backstops historical leaks (see `MEMORY_NOISE_SWEEP_AT`).
 - **Concurrency contract**: the service's only background work is the
