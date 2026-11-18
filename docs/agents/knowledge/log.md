@@ -12,3 +12,6 @@
 ## [2026-11-18] ingest | injection-quality
 - 沉淀 injection-quality/symlink-store-capture-commit：Git 2.43 把 symlink 字面绝对路径的 pathspec 判 outside repository（rev-parse 能解析真实仓根也不行），gitCommitStore 改 `fs.realpathSync` 后 root/add/staged/commit 全链用 realStore；提交失败走 `capture-commit-failed id/stage/rc/error` 结构化输出且 capture rc 保持 0 防重复 @c1240e7 @237d5bd
 - Types: Bug Experience
+## [2026-11-18] ingest | injection-quality
+- 沉淀 injection-quality/conflict-threshold（冲突标注阈值默认 cos 0.90：969 条 live decision 下 0.60 有 7542 对、0.90 仅 41 对，域外 fail-fast，⚠ 仅候选信号人工裁决）与 injection-quality/noise-credential-hardening（验证门/交付链回执覆盖收敛、`Credential <task-id>` 行首族＋无冒号 token 变体硬拒、分隔符匹配限行内防跨行误杀；noise-sweep 收口后活动库 3841 条、凭据谓词/粗筛均 0、noise 测试 83 passed） @1ca5c52 @d87b83d @dc0f412 @be1ec09 @789e5f3 @4265f07
+- Types: Decision

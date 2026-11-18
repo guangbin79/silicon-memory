@@ -47,6 +47,31 @@
 - closing 标签全部剥除而非首匹配：meta 字段未过字符集校验、可含标签文本，首匹配替换会错删中毒片段而漏真闭合——显示层零边界标签是硬目标（e57f266）
 - header 后空行用于可读性/Markdown 稳定性；显示层剥 header 整行及其后空行，新旧格式都归一到首条 meta 行（f5322ef）
 
+### 冲突标注阈值：cos≥0.90 高置信近邻才标 ⚠（2026-11-18）
+- **Id:** injection-quality/conflict-threshold
+- **Source:** 1ca5c52, ag-f10cc2
+- **Chosen:** decision 冲突候选聚簇阈值独立配置（`conflict_min_sim`/`MEMORY_CONFLICT_MIN_SIM`），默认 0.90——同项目高置信近邻才标 ⚠
+- **Alternatives:** 0.60 级宽松阈值；不设阈值全量标注
+- **Reason:** live 分布实证：969 条活跃项目 decision 下 cos≥0.60 有 7542 对候选、0.90 仅 41 对——低阈值 ⚠ 洪泛反失信号价值
+- **Tradeoff:** 高阈值可能漏真实矛盾；⚠ 只提示近邻存在，裁决仍须人工比对两条原文
+- 值域 0~1，域外 fail-fast；0.0＝全标、1.0＝几乎关闭，无独立关闭档（config.py）
+- 相似≠矛盾：⚠ 是候选信号非矛盾判定，人工裁决不可省
+
+### 读口滤噪收敛：验证门回执覆盖＋凭据 artifact 硬拒（2026-11-18）
+- **Id:** injection-quality/noise-credential-hardening
+- **Source:** d87b83d, dc0f412, 4265f07, be1ec09, 789e5f3, ag-e638a2, ag-a03c7b, ag-92b4fa, ag-c954f6, ag-513473
+- **Chosen:** 验证门/交付链回执纳入 relay 滤噪覆盖；凭据与派发页回显两族独立硬短路（安全优先宁滥勿漏）
+- **Alternatives:** relay 模式逐个补丁；凭据行按词表软过滤
+- **Reason:** 回执是流程状态非领域知识，注入即自增强；凭据一旦注入即泄漏面，宁可误杀
+- **Tradeoff:** 过滤面扩张靠 noise 测试集回归兜底（83 passed）
+- 回执覆盖收敛：已进入验证门、entered/entering verification、多任务并列、in verification state、验证任务/交付任务/新任务、交付失败、已合并但等 live 形态（d87b83d, dc0f412, 4265f07）
+- 用户询问句（“…的流程是什么/原因可能有哪些”）保持放行——真实信息需求非回执
+- 凭据硬拒族：`Credential <task-id>` 行首族（裸 Credential ag-x 亦是派发凭据回显，token 可省）＋无冒号 `token <secret>`/`with token <secret>` 变体（tokens? 兼复数）（be1ec09, 789e5f3）
+- token 分隔符空白/is 分支限行内：防「行尾 token＋次行长串」跨行误杀知识句；冒号/等号分支沿旧语义
+- 含 credential 单词的知识句不以行首 credential 开头（OAuth credential rotation policy 类），锚行首＋引导词封闭集防误杀
+- 真实 token 不得进入代码/测试/知识页
+- 收口数据：多轮 noise-sweep＋purge 后活动库 3841 条，活动凭据谓词/粗筛均 0
+
 ## Strategies
 
 ### 质量门改动的验收与部署（2026-11-18）
