@@ -95,6 +95,11 @@ NOISE_SAMPLES = [
     f"Credential token {_SYN_HEX}",
     "Credential ag-76ad62",
     "credential gt-76ad62",
+    # 凭据无冒号 token 变体（2026-11-18 live SQL 粗扫 3 条残留形态，合成
+    # hex 钉）：token/with token 后空白分隔；行首 credential 锚接不住前两形态
+    f"Agora session credential gt-test01 with token {'a' * 64}",
+    f"Token {'b' * 64} ag-test02 with token {'b' * 64}",
+    f"agora credential with token {'c' * 64}",
     # 任务回执残留变形（2026-11-18 live /recall 实证）：无空格中文连写、
     # Verification task 引导词、已合并但后紧接续文、交付失败注解
     "任务ag-e0478b已验证中",
@@ -141,6 +146,8 @@ KEEP_SAMPLES = [
     "任务 ag-123 已完成但验收命令在 docs/a.md",
     # 凭据 artifact 反例：含 credential 单词的知识句（无任务号/长 hex）不误杀
     "OAuth credential rotation policy: rotate every 90 days",
+    # 无冒号 token 反例：token 一词＋普通续文（无 ≥40 secret 形值）不误杀
+    "OAuth credential rotation policy says refresh tokens before expiry",
     # 回执变形引导词/动词的询问反例：无紧随回执形态不误杀
     "验证任务 ag-e2cbf3 的流程是什么",
     "任务 ag-e2cbf3 交付失败的原因可能有哪些",
