@@ -76,6 +76,13 @@ NOISE_SAMPLES = [
     "任务 ag-e0478b 已进入验证门（verify 运行中）",
     "Task ag-a736c6 entered verification stage and is currently running.",
     "任务 ag-f80309 和 ag-e7e28d 已进入验证门，需等待其 verify 结果。",
+    # 验证门残留回执变体（2026-11-18 ag-a03c7b live /recall 实证，旧 106 条
+    # 清扫后仍高分返回）：has entered / in verification state / 中文修饰
+    # 引导词（验证任务/交付任务）/已合并但
+    "Task ag-a5472a has entered verification phase and is currently running.",
+    "Task ag-cd616c in verification state",
+    "验证任务 ag-c2ddab 完成，检查了多个平台的版本号和插件文件。",
+    "交付任务 ag-6c673c 已合并但 origin 未同步，需派发方自推…",
 ]
 
 KEEP_SAMPLES = [
@@ -103,6 +110,9 @@ KEEP_SAMPLES = [
     "任务 ag-e2cbf3 的 goal 写错了，帮我改一下",
     # 动词后接非边界续文（疑问/叙述续文非回执形态）→ 不误拒
     "任务 ag-b7d20c 被取消了吗？",
+    # 中文修饰引导词反例（ag-a03c7b）：无紧随状态动词的询问句不误杀
+    "验证任务 ag-e2cbf3 的验收流程是什么",
+    "交付任务 ag-e2cbf3 的方案该怎么做",
 ]
 
 

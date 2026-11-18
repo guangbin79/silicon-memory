@@ -76,16 +76,18 @@ _KEYWORDS = re.compile(
 # 验收命令」）不误拒——原话优先语义锚定。
 _RELAY_LEAD = re.compile(
     r"^\s*(?:\[[^\]]{1,32}\]\s*)?"        # 可选方括号前缀（如 [agora]）
-    r"(?:task\s+|任务\s*)?"               # 可选引导词 task/任务
+    r"(?:task\s+|(?:验证任务|交付任务|任务)\s*)?"  # 可选引导词（含中文修饰）
     r"(?:ag|gt|task)-[A-Za-z0-9]{1,32}"   # 任务号
     # 多任务并列（2026-11-18 live 实证）：「ag-a 和 ag-b 已进入验证门」
     r"(?:\s*[和、,，]\s*(?:ag|gt|task)-[A-Za-z0-9]{1,32})*"
-    r"\s*(?:已|被)?\s*"
+    r"\s*(?:已|被|has\s+)?\s*"
     r"(?:merged|closed|done|blocked|completed|cancelled|canceled|reopened"
     r"|entered|entering|result|milestones?|answer"
-    r"|完成|关闭|取消|入验证门|进入验证门|重新打开)"
-    # 边界含全角左括号：agorad 回执带「（actor=ses_…）」注解——只认右括号会整条漏拒
-    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—（])", re.IGNORECASE)
+    r"|in verification (?:state|stage|phase)"
+    r"|完成|关闭|取消|合并|入验证门|进入验证门|重新打开)"
+    # 边界含全角左括号：agorad 回执带「（actor=ses_…）」注解——只认右括号会整条漏拒；
+    # 含「但」：交付回执「已合并但 origin 未同步」形态（ag-a03c7b）
+    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—（但])", re.IGNORECASE)
 # 无任务号的固定里程碑短语头（agorad 无号 relay 形态）
 _RELAY_PHRASE = re.compile(
     r"^\s*(?:已入验证门|验证门任务|multiple merged milestones)", re.IGNORECASE)
