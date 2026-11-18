@@ -94,7 +94,7 @@ silicon-memory CLI — the agent-facing face (declare it, it's on PATH)
 
 **Agent-facing CLI (standalone model).** The CLI is not a shell through something else — agent-side instructions (skills / AGENTS.md) declare `silicon-memory memory …` and `silicon-memory knowledge …` directly. Deployment-side governance faces (practice / policy / evolution / groom) are intentionally not in this repo.
 
-**opencode wiring.** The installer deploys the plugin and TUI automatically (`server/integrations/opencode/memory.ts` and the `silicon-memory-tui/` directory → `~/.config/opencode/plugins/` as real copies; re-run `./install.sh` to refresh, or manually `cp -rfp`). The plugin alone delivers hook-driven recall / injection / auto-capture (with `MEMORY_PLUGIN_AUTOSTART=1` service spawn) **and** the native `memory_store` / `memory_recall` tools. No MCP registration needed. Other harnesses: hook adapters in [server/integrations/](server/integrations/).
+**opencode wiring.** The installer deploys the plugin and TUI automatically (`server/integrations/opencode/memory.ts` and the `silicon-memory-tui/` directory → `~/.config/opencode/plugins/` as real copies; re-run `./install.sh` to refresh, or manually `cp -rfp`). The plugin alone delivers hook-driven recall / injection / auto-capture (with `MEMORY_PLUGIN_AUTOSTART=1` service spawn) **and** the native `memory_store` / `memory_recall` tools. No MCP registration needed. Other harnesses: hook adapters in [server/integrations/](server/integrations/). Injection is quality-gated: `/recall` filters legacy task receipts and below-threshold rerank scores (`filter_stats` counts the drops), and when the gate cannot be evaluated (`gate_degraded`) or the GPU breaker trips (`gpu_degraded`) the plugin stops auto-injecting — manual recall keeps working.
 
 ## Highlights
 
@@ -130,7 +130,7 @@ Umbrella-level options (the two directories plus the plugin's noise table):
 | `SM_NOISE_PREFIXES` | empty | Comma-separated task-event noise prefixes the plugin skips on capture, e.g. `[agora]` |
 | `MEMORY_DATA_DIR` | from config | Exported to your shell rc; read by the service and plugin |
 
-Everything else — ~30 `MEMORY_*` variables covering recall quality (cosine floor / redundancy ceiling / rerank budget), distillation, TTL, cloud channel, ports and tokens — is documented in [server/README.md](server/README.md).
+Everything else — ~30 `MEMORY_*` variables covering recall quality (cosine floor / redundancy ceiling / rerank relevance gate `MEMORY_RECALL_MIN_RERANK` / rerank budget), distillation, TTL, cloud channel, ports and tokens — is documented in [server/README.md](server/README.md).
 
 ## Safety Model
 

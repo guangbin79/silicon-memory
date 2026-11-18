@@ -203,6 +203,7 @@ Service:
 | `MEMORY_RRF_K` | `60` | RRF fusion constant |
 | `MEMORY_RECALL_MIN_COSINE` | `0.45` | Cosine floor for vector-only hits (BM25 hits always pass); `0` = off |
 | `MEMORY_RECALL_MAX_COSINE` | `0.92` | Redundancy ceiling: vector-only hits above this drop as redundant (BM25 unaffected); `1.0` = off |
+| `MEMORY_RECALL_MIN_RERANK` | `0.5` | Relevance gate: hits whose current-query rerank score is below this drop at `/recall` (unscored hits — e.g. cross-project extras — are re-scored against the query first; drops counted in `filter_stats.low_score`, legacy task receipts in `filter_stats.noise`); `0` = off; rerank-off/pure-BM25 deployments unaffected |
 | `MEMORY_CROSS_PROJECT` | `1` | Cross-project graph: append same-origin solutions from project B to project recalls; `=0` off |
 | `MEMORY_CROSS_LIMIT` | `2` | Cap on cross-project extras (never counted against the main quota) |
 | `MEMORY_CROSS_SIM` | `0.90` | Cosine threshold for cross-project synonym edges |
@@ -562,6 +563,13 @@ still earns a score. Post-fusion steps:
   budget or any error → RRF order stands (fail-open). Ties break by `updated_at`
   desc. Auto resolves to the conventional model path — set a path to force on,
   `MEMORY_RERANK_MODEL=` (empty) to disable.
+- **Relevance gate** (`MEMORY_RECALL_MIN_RERANK=0.5`): after rerank, hits scoring
+  below the threshold are dropped and the limit is not backfilled with low
+  scorers; `/recall` reports drops as `filter_stats.low_score` (plus
+  `filter_stats.noise` for legacy task receipts filtered at the exit). If the
+  reranker is configured but cannot score (over budget / error), the response
+  carries `gate_degraded` — hits stay for manual queries while the plugin stops
+  auto-injecting; rerank-off deployments are untouched.
 
 ## Capacity & alerting (observability, not interruptions)
 

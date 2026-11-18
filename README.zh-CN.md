@@ -92,7 +92,7 @@ silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 P
 
 **面向 agent 的 CLI（独立模式）。** CLI 不是别的壳的转发——agent 侧指令（skills / AGENTS.md）直接声明 `silicon-memory memory …` 与 `silicon-memory knowledge …`。部署方治理面（practice / policy / evolution / groom）有意不在本仓。
 
-**opencode 接线。** 安装器自动部署插件与 TUI（`server/integrations/opencode/memory.ts` 与 `silicon-memory-tui/` 目录 → `~/.config/opencode/plugins/` 实体拷贝；重跑 `./install.sh` 即刷新，或手动 `cp -rfp`）。插件独自交付钩子驱动的召回 / 注入 / 自动捕获（`MEMORY_PLUGIN_AUTOSTART=1` 时自动拉起服务）**与**原生 `memory_store` / `memory_recall` 工具，无需任何 MCP 注册。其他 harness：[server/integrations/](server/integrations/) 的钩子适配器。
+**opencode 接线。** 安装器自动部署插件与 TUI（`server/integrations/opencode/memory.ts` 与 `silicon-memory-tui/` 目录 → `~/.config/opencode/plugins/` 实体拷贝；重跑 `./install.sh` 即刷新，或手动 `cp -rfp`）。插件独自交付钩子驱动的召回 / 注入 / 自动捕获（`MEMORY_PLUGIN_AUTOSTART=1` 时自动拉起服务）**与**原生 `memory_store` / `memory_recall` 工具，无需任何 MCP 注册。其他 harness：[server/integrations/](server/integrations/) 的钩子适配器。注入带质量门：`/recall` 过滤历史任务回执与低于阈值的重排分（`filter_stats` 计数丢弃），门不可评估（`gate_degraded`）或 GPU 熔断（`gpu_degraded`）时插件停止自动注入——手动召回不受影响。
 
 ## 核心能力
 
@@ -128,7 +128,7 @@ silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 P
 | `SM_NOISE_PREFIXES` | 空 | 插件捕获时跳过的任务事件噪声前缀（逗号分隔），如 `[agora]` |
 | `MEMORY_DATA_DIR` | 来自 config | 写入 shell rc；服务与插件经 env 读取 |
 
-其余——约 30 个 `MEMORY_*` 变量，覆盖召回质量（cosine 下限 / 冗余上限 / rerank 预算）、蒸馏、TTL、云通道、端口与 token——见 [server/README.md](server/README.md)。
+其余——约 30 个 `MEMORY_*` 变量，覆盖召回质量（cosine 下限 / 冗余上限 / 重排相关度门 `MEMORY_RECALL_MIN_RERANK` / rerank 预算）、蒸馏、TTL、云通道、端口与 token——见 [server/README.md](server/README.md)。
 
 ## 安全模型
 
