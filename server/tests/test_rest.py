@@ -734,3 +734,20 @@ def test_superseded_entry_still_listed_with_by(client):
                       params={"project": "sup-proj", "limit": 200}).json()["memories"]
     entry = next(m for m in rows if m["uid"] == old)
     assert entry["superseded_by"] == new
+
+
+# ---------------- 读口噪声过滤：历史遗留回执不返回（库不删，只不返回） ----------------
+
+def test_recall_filters_legacy_task_receipts(client):
+    """入口闸之前的存量回执（直接 store 落库绕过 ingest 闸）在 /recall 出口
+    被滤除：hits 只含正常条目、filter_stats.noise 计数；库内条目不删。"""
+    server.store.store(
+        "任务 ag-7a77d3 已取消（actor=ses_e1e5b3c00ffehOog8TPs0Nvhkz）",
+        kind="fact", project=None)
+    uid = server.store.store("已取消的任务要人工复核并记录原因 QXng1",
+                             kind="fact", project=None)
+    body = client.post("/recall", json={"query": "已取消", "limit": 5}).json()
+    hits = body["hits"]
+    assert uid in {h["uid"] for h in hits}
+    assert all("actor=" not in h["content"] for h in hits)  # 回执不出 hits
+    assert body["filter_stats"]["noise"] >= 1

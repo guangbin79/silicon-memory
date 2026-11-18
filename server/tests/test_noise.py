@@ -68,6 +68,9 @@ NOISE_SAMPLES = [
     "Multiple merged milestones: ag-a、ag-b",
     "[agora] task ag-b7d20c milestone from agorad",
     "Task ag-b7d20c reopened by dispatcher",
+    # 边界缺口回归（2026-11）：动词后接全角左括号注解——边界字符集原只认
+    # 右括号（ASCII/全角），agorad 取消回执带（actor=ses_…）整条漏拒
+    "任务 ag-7a77d3 已取消（actor=ses_e1e5b3c00ffehOog8TPs0Nvhkz）",
 ]
 
 KEEP_SAMPLES = [

@@ -452,7 +452,16 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
         global_limit=global_limit,
     )
     _record_recall((time.perf_counter() - t0) * 1000.0)
+    # 读口噪声过滤：入口闸（rest_ingest）之前的存量任务回执不返回——库不删，
+    # 只不返回；判定核与入口同一 is_task_event_noise（宁漏勿误口径不变）
+    kept = [h for h in hits if not is_task_event_noise(h["content"])]
+    filter_stats: dict[str, int] = {}
+    if len(kept) != len(hits):
+        filter_stats["noise"] = len(hits) - len(kept)
+        hits = kept
     out = {"hits": hits}
+    if filter_stats:
+        out["filter_stats"] = filter_stats
     if gpu_breaker.tripped():
         # 熔断期：注入是干扰不是帮助（用户裁定：达不到准确不如不用）——
         # 响应带降级标记，插件据此停止注入；BM25 召回本体照常（工具显式调用可用）

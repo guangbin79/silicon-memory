@@ -81,7 +81,8 @@ _RELAY_LEAD = re.compile(
     r"\s*(?:已|被)?\s*"
     r"(?:merged|closed|done|blocked|completed|cancelled|canceled|reopened"
     r"|result|milestones?|answer|完成|关闭|取消|入验证门|重新打开)"
-    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—])", re.IGNORECASE)
+    # 边界含全角左括号：agorad 回执带「（actor=ses_…）」注解——只认右括号会整条漏拒
+    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—（])", re.IGNORECASE)
 # 无任务号的固定里程碑短语头（agorad 无号 relay 形态）
 _RELAY_PHRASE = re.compile(
     r"^\s*(?:已入验证门|验证门任务|multiple merged milestones)", re.IGNORECASE)
