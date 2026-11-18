@@ -9,3 +9,6 @@
 ## [2026-11-18] ingest | injection-quality
 - 沉淀热记忆注入质量门与展示格式结论：/recall 出口统一终门（is_task_event_noise 过滤历史回执＋MEMORY_RECALL_MIN_RERANK 默认 0.5、低分整条丢弃、gate_degraded 停注入保手动查询）；注入块元数据前置＋正文缩进＋meta 折行防伪造列 0；TUI 只剥面板壳而模型上下文永远保留完整 <semantic-memory> 边界；冲突指引退役入口修正为 memory_supersede/silicon-memory retire @c4b8d15 @7446ee3 @65d3dd8 @64850c9 @7d3a98a @e57f266 @f5322ef
 - Types: Decision/Strategy/Bug Experience/Module Info
+## [2026-11-18] ingest | injection-quality
+- 沉淀 injection-quality/symlink-store-capture-commit：Git 2.43 把 symlink 字面绝对路径的 pathspec 判 outside repository（rev-parse 能解析真实仓根也不行），gitCommitStore 改 `fs.realpathSync` 后 root/add/staged/commit 全链用 realStore；提交失败走 `capture-commit-failed id/stage/rc/error` 结构化输出且 capture rc 保持 0 防重复 @c1240e7 @237d5bd
+- Types: Bug Experience

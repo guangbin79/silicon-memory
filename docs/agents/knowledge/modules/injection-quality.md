@@ -67,3 +67,12 @@
 - **Root cause:** 指引文案滞后于控制面迁移，agentctl memory 接口已不存在
 - **Fix:** 指引只保留现行入口——memory_supersede 工具/silicon-memory retire
 - **Prevention:** 指引文案中的接口名与公开控制面同步演进；现行控制面口径以 [unified-lifecycle](unified-lifecycle.md) 为准
+
+### 软链 store 自动提交被 Git pathspec 判 outside repository（2026-11-18）
+- **Id:** injection-quality/symlink-store-capture-commit
+- **Source:** c1240e7, 237d5bd, ag-e66b04
+- **Symptom:** `SM_EXP_STORE=/home/guangbin/.agent-experiences` 软链指向 dotfiles 仓内 store；capture 落盘 rc0 但自动提交失败只留 stderr，dotfiles 主仓变脏并拦后续任务 local_target_dirty
+- **Root cause:** `git -C <store> rev-parse` 能解析真实仓根，但 pathspec 仍按软链字面绝对路径判定在仓外（Git 2.43 实证）；不是 index.lock 竞争，也不是绕过 CLI
+- **Fix:** gitCommitStore 先 `fs.realpathSync(store)`，root/add/staged/commit 全链用 realStore；经验写路径不变
+- **Prevention:** 提交失败输出结构化 `capture-commit-failed id/stage/rc/error` 且 capture rc 仍 0 防重复落盘；worker 看到该行必须当轮 post 上报 dispatcher
+- 验证：./skills/agent-experience/bin/test-capture-commit.sh 新增 symlinked-store-commits-realpath，7/7 passed
