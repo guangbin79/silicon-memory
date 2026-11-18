@@ -20,6 +20,9 @@ from semantic_memory.db import MemoryStore
 from semantic_memory.lifecycle import enqueue_raw, flush_distill_queue
 from semantic_memory.noise import is_task_event_noise, strip_noise_lines
 
+# 合成 token（64 hex），凭据 artifact 样本统一引用——真值不入 git 史
+_SYN_HEX = "0123456789abcdef" * 4
+
 # 2026-11 热mem 污染事故的真实回执样本（三层形态）
 NOISE_SAMPLES = [
     # raw hook 直写：done + 裸 40 位 hash
@@ -83,6 +86,21 @@ NOISE_SAMPLES = [
     "Task ag-cd616c in verification state",
     "验证任务 ag-c2ddab 完成，检查了多个平台的版本号和插件文件。",
     "交付任务 ag-6c673c 已合并但 origin 未同步，需派发方自推…",
+    # 凭据 artifact 残留（2026-11-18 live /recal 实证，kind=artifact 明文形
+    # 态族）：行首 credential＋引导词（:/token/for task）＋任务号＋可选
+    # with token hex；无 token 裸任务号形态也拒
+    f"Credential ag-76ad62 with token {_SYN_HEX}",
+    f"Credential: Token for ag-76ad62 with token {_SYN_HEX}",
+    f"Credential for task ag-76ad62 with token {_SYN_HEX}",
+    f"Credential token {_SYN_HEX}",
+    "Credential ag-76ad62",
+    "credential gt-76ad62",
+    # 任务回执残留变形（2026-11-18 live /recall 实证）：无空格中文连写、
+    # Verification task 引导词、已合并但后紧接续文、交付失败注解
+    "任务ag-e0478b已验证中",
+    "Verification task ag-e0478b completed, all checks green.",
+    "交付任务ag-6c673c已合并但origin未同步，需派发方自推",
+    "任务 ag-e7e28d 交付失败（local_target_dirty），环境保留",
 ]
 
 KEEP_SAMPLES = [
@@ -118,6 +136,11 @@ KEEP_SAMPLES = [
     "Task ag-x has merged the retry logic from both branches into one design; "
     "lesson: backoff must be stateful.",
     "任务 ag-123 已完成但验收命令在 docs/a.md",
+    # 凭据 artifact 反例：含 credential 单词的知识句（无任务号/长 hex）不误杀
+    "OAuth credential rotation policy: rotate every 90 days",
+    # 回执变形引导词/动词的询问反例：无紧随回执形态不误杀
+    "验证任务 ag-e2cbf3 的流程是什么",
+    "任务 ag-e2cbf3 交付失败的原因可能有哪些",
 ]
 
 
@@ -163,6 +186,9 @@ def test_strip_drops_credential_lines_keeps_knowledge():
     cred = "[agora] credential ag-x\ntoken: " + "a" * 64
     assert strip_noise_lines(cred + "\n真实知识") == "真实知识"
     assert strip_noise_lines("password = pypi-AgEIabc\n知识B") == "知识B"
+    # artifact 形态行级投影：行首 credential 行滤除，知识行保留
+    assert strip_noise_lines(
+        f"Credential ag-x with token {_SYN_HEX}\n知识C") == "知识C"
 
 
 def test_flush_distill_input_drops_credential_line(store):
