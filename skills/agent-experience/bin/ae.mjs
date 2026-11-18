@@ -717,6 +717,25 @@ function cmdSelfcheck() {
         'knowledge query zero: 双层零命中 → 空数组 rc0');
       let kl = cmdKnowledgeLint(kroot);
       ok(kl.rc === 0 && kl.out.includes('0 findings'), 'knowledge lint clean: 索引双向一致＋链接活 → rc0');
+      // index header exempt: 模块列表外的表头/分隔行回归（Work repo knowledge-index 的 全局主题 表头被解析为索引行 → DEAD_INDEX_ENTRY 主题）
+      {
+        const ktopic = path.join(fixture, 'knowledge-topic');
+        fs.mkdirSync(path.join(ktopic, 'modules'), { recursive: true });
+        fs.writeFileSync(path.join(ktopic, 'modules', 'auth.md'), '# Auth\n');
+        fs.writeFileSync(path.join(ktopic, 'log.md'), '# Knowledge Log\n');
+        fs.writeFileSync(path.join(ktopic, 'knowledge-index.md'), [
+          '# Knowledge Index', '', '## 全局主题', '',
+          '| 主题 | 描述 | 路径 |', '| :--- | :---: | ---: |',   // 表头（首列 主题）＋冒号对齐分隔行
+          '| 名称 | 描述 | 路径 |', '|------|------|---------|',  // 表头（首列中性，靠路径位列 路径 识别）＋破折号分隔行
+          '| 主题 | 描述 | 备注 |',   // 表头（首列 主题、路径位列非表头字——钉首列判据）
+          '', '## 模块列表', '',
+          '| 模块 | 一句话描述 | 详细路径 |', '|------|-----------|----------|',
+          '| auth | 登录态 | modules/auth.md |',
+        ].join('\n') + '\n');
+        const klt = cmdKnowledgeLint(ktopic);
+        ok(klt.rc === 0 && klt.out.includes('0 findings'),
+          'index header exempt: 全局主题表头与分隔行不再误报');
+      }
       fs.writeFileSync(path.join(kroot, 'modules', 'ghost.md'), '# Ghost\n'); // Tier 1 缺口：文件在、索引无行
       fs.writeFileSync(path.join(kroot, 'knowledge-index.md'), idxText + '| ghost-row | 无文件 | modules/ghost-row.md |\n');
       fs.writeFileSync(path.join(kroot, 'modules', 'auth.md'), '# Auth\n\nSee also: [gone](nope.md)\n');
@@ -1141,13 +1160,17 @@ function cmdKnowledgeQuery(store, kroot, word) {
   return { rc: 0, out: JSON.stringify({ experiences, knowledge, knowledge_root: kroot }) + '\n' };
 }
 
-// 索引表数据行第一列＝模块名（live 3 列与模板 4 列格式同构；表头/分隔行过滤）
+// 索引表数据行第一列＝模块名（live 3 列与模板 4 列格式同构；表头/分隔行过滤：首列 模块/Module/主题 或路径位列 路径/摘要路径 即表头，全格仅破折号/空白即分隔行——形状识别，不锁单一表名）
 const parseIndexNames = (text) => {
   const names = [];
   for (const l of (text ?? '').split('\n')) {
     if (!l.startsWith('|')) continue;
-    const name = l.split('|')[1]?.trim().replace(/`/g, '') ?? '';
-    if (!name || name === '模块' || name === 'Module' || /^-+$/.test(name)) continue;
+    const cells = l.split('|').map((c) => c.trim());
+    const name = (cells[1] ?? '').replace(/`/g, '');
+    if (!name || name === '模块' || name === 'Module' || name === '主题' || /^-+$/.test(name)) continue;
+    if (cells.every((c) => /^[-:\s]*$/.test(c))) continue;   // 分隔行：全格仅破折号/空白（含 :--- 对齐冒号）
+    const pathCell = cells[cells.length - 1] || cells[cells.length - 2] || '';
+    if (pathCell === '路径' || pathCell === '摘要路径') continue;   // 表头行：路径位列恰为表头字
     names.push(name);
   }
   return names;
