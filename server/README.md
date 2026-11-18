@@ -355,7 +355,7 @@ kinds derive query-side from existing data (no new tables, no write-path state):
 
 `/recall` with a project appends extras after the main results (flagged
 `cross_kind`/`via_uid`, never counted against the quota, capped by
-`MEMORY_CROSS_LIMIT`, synonym first); the plugin renders a `(cross-project <kind>)`
+`MEMORY_CROSS_LIMIT`, synonym first); the plugin renders a `[cross-project: <kind>]`
 marker. Reported extras reinforce co_injection edges — a flywheel. Observability:
 `GET /api/graph?uid=` returns one entry's 1-hop edges (re-query with `to_uid` to traverse).
 

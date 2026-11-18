@@ -608,7 +608,7 @@ await post("/inject/report", {
 const xblock = xev.messages.map(contentText).join("");
 assert.ok(xblock.includes("qzhij9crossa"), "主结果：A 项目种子条目进尾注");
 assert.ok(
-  xblock.includes("网关 5xx 即熔断重试的降级预案") && xblock.includes("(cross-project co_injection)"),
+  xblock.includes("网关 5xx 即熔断重试的降级预案") && xblock.includes("[cross-project: co_injection]"),
   "跨项目附加：B 项目同源条目应以 cross-project 标记进尾注",
 );
 const headText = xev.system.map((s) => s.text).join("");

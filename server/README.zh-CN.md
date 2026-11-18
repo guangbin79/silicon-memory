@@ -306,7 +306,7 @@ MEMORY_PORT=0 semantic-memory
 - **synonym（同义跨域）**：全矩阵暴力余弦的跨项目近邻（权重 = 余弦；纯 BM25 无向量时缺席）。
 
 `/recall` 带项目时在主结果后追加附加条目（`cross_kind`/`via_uid` 标记，不占主配额，
-`MEMORY_CROSS_LIMIT` 截断，synonym 优先）；插件注入块渲染 `(cross-project <kind>)` 标记。
+`MEMORY_CROSS_LIMIT` 截断，synonym 优先）；插件注入块渲染 `[cross-project: <kind>]` 标记。
 附加条目被上报后自然加固 co_injection 边——飞轮。观测面：`GET /api/graph?uid=` 返回
 单条目 1-hop 边（以 `to_uid` 为种子再查即遍历）。
 
