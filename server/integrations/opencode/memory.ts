@@ -291,7 +291,8 @@ export function formatBlock(hits: Hit[]): string {
   for (const h of hits) {
     // 元数据前置一行（正文很长时元数据不被挤到行尾），正文整体缩进两格、多行逐行缩进，条目间空一行
     const meta = `- [${h.kind}]${h.project ? ` [project: ${h.project}]` : ""}${h.cross_kind ? ` [cross-project: ${h.cross_kind}]` : ""}${h.conflict ? ` ⚠conflict [uid: ${h.uid}]` : ""}\n`;
-    const body = sanitizeMemory(h.content).split("\n").map((l) => `  ${l}`).join("\n");
+    // CR/FF/U+2028/U+2029 与 \n 同归一行分隔（终闸 C 册：裸 \r 等可让伪造元数据/policy 行回列 0），空行不缩进免尾随空白
+    const body = sanitizeMemory(h.content).replace(/\r\n?|[\f\u2028\u2029]/g, "\n").split("\n").map((l) => (l ? `  ${l}` : "")).join("\n");
     const entry = (first ? "" : "\n") + meta + body + "\n";
     if (used + entry.length > cfg.budget) break; // 超预算整条丢弃，绝不截半条
     if (h.conflict) conflict = true;
