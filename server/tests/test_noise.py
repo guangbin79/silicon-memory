@@ -113,6 +113,11 @@ KEEP_SAMPLES = [
     # 中文修饰引导词反例（ag-a03c7b）：无紧随状态动词的询问句不误杀
     "验证任务 ag-e2cbf3 的验收流程是什么",
     "交付任务 ag-e2cbf3 的方案该怎么做",
+    # 评审轮 2 反例钉（终闸 B/C 册探针原句）：「动词+但/has+动词」的知识续文
+    # 不误杀——但/has 只在回执证据形（合并但、has entered）内生效
+    "Task ag-x has merged the retry logic from both branches into one design; "
+    "lesson: backoff must be stateful.",
+    "任务 ag-123 已完成但验收命令在 docs/a.md",
 ]
 
 

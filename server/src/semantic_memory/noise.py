@@ -80,14 +80,17 @@ _RELAY_LEAD = re.compile(
     r"(?:ag|gt|task)-[A-Za-z0-9]{1,32}"   # 任务号
     # 多任务并列（2026-11-18 live 实证）：「ag-a 和 ag-b 已进入验证门」
     r"(?:\s*[和、,，]\s*(?:ag|gt|task)-[A-Za-z0-9]{1,32})*"
-    r"\s*(?:已|被|has\s+)?\s*"
+    r"\s*(?:已|被)?\s*"
     r"(?:merged|closed|done|blocked|completed|cancelled|canceled|reopened"
-    r"|entered|entering|result|milestones?|answer"
+    # has 仅在回执证据形「has entered verification …」放行（终闸 B 册：泛化
+    # has 会误杀英文完成时知识句——has merged the retry logic…）
+    r"|(?:has\s+)?entered|entering|result|milestones?|answer"
     r"|in verification (?:state|stage|phase)"
-    r"|完成|关闭|取消|合并|入验证门|进入验证门|重新打开)"
-    # 边界含全角左括号：agorad 回执带「（actor=ses_…）」注解——只认右括号会整条漏拒；
-    # 含「但」：交付回执「已合并但 origin 未同步」形态（ag-a03c7b）
-    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—（但])", re.IGNORECASE)
+    # 「但」仅并入合并动词分支（终闸 A/C 册：入共享边界集会误杀「已完成但
+    # +知识正文」——回执证据形只有「已合并但 origin 未同步」）
+    r"|完成|关闭|取消|合并但?|入验证门|进入验证门|重新打开)"
+    # 边界含全角左括号：agorad 回执带「（actor=ses_…）」注解——只认右括号会整条漏拒
+    r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—（])", re.IGNORECASE)
 # 无任务号的固定里程碑短语头（agorad 无号 relay 形态）
 _RELAY_PHRASE = re.compile(
     r"^\s*(?:已入验证门|验证门任务|multiple merged milestones)", re.IGNORECASE)
