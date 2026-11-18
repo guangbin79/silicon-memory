@@ -129,7 +129,7 @@ function gitCommitStore(store, id) {
           'commit', '-m', `memory(capture): ${id}`, '--', realStore], { encoding: 'utf8' });
         if (cm.status === 0) return;
         note('commit', cm);
-      } else note('add', staged);
+      } else note('diff', staged);
     } else note('add', add);
     if (attempt >= 2) {
       const one = failErr.replace(/\s+/g, ' ').slice(0, 200); // 单行截断防爆炸
