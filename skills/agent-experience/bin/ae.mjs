@@ -106,27 +106,36 @@ function appendIndexRow(store, row) {
 //      index.lock 竞争重试两次（agentctl practice_git_commit 同款）；提交失败仅告警不回滚
 //      （记录已落盘且重试安全，残余脏面由后续 capture/groom 收编）。----
 function gitCommitStore(store, id) {
+  let realStore = store;
+  try { realStore = fs.realpathSync(store); } catch {} // 软链 store 归一——git pathspec 视 symlink 绝对路径为 outside repository（Git 2.43 实证）
   let root = '';
   try {
-    const r = spawnSync('git', ['-C', store, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    const r = spawnSync('git', ['-C', realStore, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
     if (r.status !== 0) return;
     root = r.stdout.trim();
   } catch { return; }
   const user = os.userInfo().username;
+  let failStage = '', failRc = 0, failErr = '';
+  const note = (stage, r) => { failStage = stage; failRc = r.status; failErr = `${r.stderr || ''}${r.stdout || ''}`.trim(); };
   for (let attempt = 0; ; attempt++) {
-    let add = spawnSync('git', ['-C', root, 'add', '--', store, ':(exclude,glob)**/.capture.lock'], { encoding: 'utf8' });
+    let add = spawnSync('git', ['-C', root, 'add', '--', realStore, ':(exclude,glob)**/.capture.lock'], { encoding: 'utf8' });
     if (add.status !== 0) // store 命中机器本地排除（.git/info/exclude）时整路径拒止——退 -u 只收 tracked 改动，新文件按排除面搁浅
-      add = spawnSync('git', ['-C', root, 'add', '-u', '--', store], { encoding: 'utf8' });
+      add = spawnSync('git', ['-C', root, 'add', '-u', '--', realStore], { encoding: 'utf8' });
     if (add.status === 0) {
-      const staged = spawnSync('git', ['-C', root, 'diff', '--cached', '--quiet', '--', store], { encoding: 'utf8' });
+      const staged = spawnSync('git', ['-C', root, 'diff', '--cached', '--quiet', '--', realStore], { encoding: 'utf8' });
       if (staged.status === 0) return; // 无新脏面（幂等重放）
       if (staged.status === 1) {
         const cm = spawnSync('git', ['-C', root, '-c', `user.name=${user}`, '-c', `user.email=${user}@localhost`,
-          'commit', '-m', `memory(capture): ${id}`, '--', store], { encoding: 'utf8' });
+          'commit', '-m', `memory(capture): ${id}`, '--', realStore], { encoding: 'utf8' });
         if (cm.status === 0) return;
-      }
+        note('commit', cm);
+      } else note('add', staged);
+    } else note('add', add);
+    if (attempt >= 2) {
+      const one = failErr.replace(/\s+/g, ' ').slice(0, 200); // 单行截断防爆炸
+      process.stderr.write(`capture-commit-failed id=${id} stage=${failStage} rc=${failRc} error=${one}\n`);
+      return;
     }
-    if (attempt >= 2) { process.stderr.write(`capture-commit: 提交未成（记录已落盘，残余脏面由后续 capture/groom 收编）: ${id}\n`); return; }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
   }
 }

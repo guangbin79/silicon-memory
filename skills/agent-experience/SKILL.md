@@ -97,6 +97,8 @@ AE_DIR="$(readlink -f ~/.config/opencode/skills/agent-experience)"
 5. **Human review**：呈报草稿；用户置 `confirmed`／`rejected`，解释类 agent 永不自翻；观察类（`epistemic: observational`＝事实可由提交物/命令输出直接复验）捕获即 `confirmed`——D3 扩展。即时的逐决策 Capture Decision 见 operations.md
 6. **Retire / Promote**：被推翻 → `silicon-memory memory supersede <旧id> --by <新id>`（`superseded_by:`）；升华入语义层 → `promote <id> --to <语义页引用>`（`promoted_to:`）。两标记查询默认滤除、零物理删除（warm-supersede-marking 教条，2026-10-18）
 
+运维规则：CLI stderr 出现 `capture-commit-failed` 时记录已落盘但 git 未收编——worker 必须当轮 post(note/question) 上报 dispatcher，不得静默继续；dispatcher 处理脏面后重派。
+
 ## Operation: Query (fast path)
 
 dot 流程、社区记忆层零命中回退、Pre-ask Query（≥2 候选单选提问前必查）、复用回写全规则见 `references/operations.md`。硬性：L0 双语关键词（概念词中英双写、技术专名保留原文，分别两条 grep）；Top-5 cap（无论命中多少，最多读 5 个文件，取最新）。

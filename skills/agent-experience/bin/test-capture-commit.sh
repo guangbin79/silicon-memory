@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ae capture --from 仓库提交面 — 自含：临时 git 仓＋--store fixture。
 # 用例：capture 后 store 脏面即提交（HEAD 含 id、status 净）/ 既有脏面（skill-uses 行＋未跟踪 reviews 笔记）随 capture 一并收编
-#       / .capture.lock 不入库（锁内提交但 exclude pathspec）/ 非 git 库 store 行为不变 rc0 / 第二次 capture 产生第二笔提交。
+#       / .capture.lock 不入库（锁内提交但 exclude pathspec）/ 非 git 库 store 行为不变 rc0 / 第二次 capture 产生第二笔提交
+#       / 仓外 symlink 指向仓内真实 store（dotfiles 实况）——realpath 归一后照常即提净。
 set -u
 
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -123,6 +124,22 @@ exmid=$(printf '%s\n' "$out" | head -1)
   && ! git -C "$FIX/exrepo" ls-files -- "$EXREP/store" | grep -q "$exmid" \
   && ! grep -q '提交未成' "$FIX/err6"
 report excluded-store-tracked-mods-committed $?
+
+# 7. 软链 store（dotfiles 实况）：仓外 symlink 指向仓内真实 store——git pathspec 视 symlink
+#    绝对路径为 outside repository，realpath 归一后照常即提净
+LNREP="$FIX/lnrepo"
+git -C "$FIX" init -q lnrepo
+git -C "$LNREP" -c user.name=selftest -c user.email=selftest@localhost commit -q --allow-empty -m init
+mkdir -p "$LNREP/ln-store"
+ln -s "$LNREP/ln-store" "$FIX/ln-link"
+out=$("$NODE" "$AE" --store "$FIX/ln-link" capture --from "$FIX/draft.md" 2>"$FIX/err7")
+rc=$?
+lnmid=$(printf '%s\n' "$out" | head -1)
+[ "$rc" -eq 0 ] && git -C "$LNREP" log -1 --format=%s | grep -q "$lnmid" \
+  && [ -z "$(git -C "$LNREP" status --porcelain -- "$LNREP/ln-store")" ] \
+  && ! grep -q '提交未成' "$FIX/err7" \
+  && ! grep -q 'capture-commit-failed' "$FIX/err7"
+report symlinked-store-commits-realpath $?
 
 echo "ae-capture-commit-selftest: $((total - fails))/$total passed"
 [ "$fails" -eq 0 ]
