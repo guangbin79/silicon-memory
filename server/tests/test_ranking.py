@@ -141,6 +141,24 @@ def test_rerank_fail_open(store, no_embedder):
     ]  # reranker=None → RRF 序
 
 
+def test_reranked_flag_marks_current_query_rerank_scores(store, no_embedder):
+    """hit.reranked=True 标记分数来自本次查询重排（score=重排分）；
+    无 reranker / rerank 失败（None）→ 字段缺省不出现（RRF 分非相关分）。"""
+    uid_a, uid_b = _pair_store(store)
+    query = "共同词 乙独有词"
+
+    rr = _StubReranker([(uid_a, 0.9), (uid_b, 0.4)])
+    out = hybrid_recall(store, no_embedder, query, limit=5, reranker=rr)
+    by = {h["uid"]: h for h in out}
+    assert by[uid_a]["reranked"] is True and by[uid_a]["score"] == 0.9
+    assert by[uid_b]["reranked"] is True and by[uid_b]["score"] == 0.4
+    for h in hybrid_recall(store, no_embedder, query, limit=5):
+        assert "reranked" not in h
+    for h in hybrid_recall(store, no_embedder, query, limit=5,
+                           reranker=_StubReranker(None)):
+        assert "reranked" not in h
+
+
 def test_redundancy_ceiling_filters(store):
     """cos 超上限的纯向量命中出局；同 cos 的 BM25 命中保留；1.0 = 关闭。"""
     dim = 8

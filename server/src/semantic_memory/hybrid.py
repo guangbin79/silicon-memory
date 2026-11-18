@@ -105,6 +105,7 @@ def hybrid_recall(
 
     # 重排：RRF 序 top-N 交 Reranker；None/失败 → 保 RRF 序 fail-open。
     # 重排后同分按 updated_at desc 平决；候选窗口外的条目按 RRF 序殿后。
+    reranked_uids: set[str] = set()  # 拿到本次查询重排分的条目（相关度门只认这个分）
     if reranker is not None and fused:
         cands = fused[:rerank_candidates]
         cand_rows = store.get_many([u for u, _ in cands])
@@ -119,12 +120,13 @@ def hybrid_recall(
                 key=lambda kv: (-kv[1], -updated_at.get(kv[0], 0.0)),
             )
             head_uids = {u for u, _ in head}
+            reranked_uids = head_uids
             fused = head + [(u, s) for u, s in fused if u not in head_uids]
 
     fused = fused[:limit]
     rows = store.get_many([uid for uid, _ in fused])
     score_map = dict(fused)
-    return [
+    hits = [
         {
             "uid": r["uid"],
             "content": r["content"],
@@ -140,3 +142,7 @@ def hybrid_recall(
         }
         for r in rows
     ]
+    for h in hits:  # 缺省不出现：无重排部署的 hit 形状不变（RRF 分不是相关分）
+        if h["uid"] in reranked_uids:
+            h["reranked"] = True
+    return hits

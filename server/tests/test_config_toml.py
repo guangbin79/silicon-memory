@@ -114,6 +114,23 @@ def test_file_paths_and_discovery_off(monkeypatch, tmp_path):
     assert cfg.maintenance_on_start is False # TOML 原生 bool
 
 
+def test_recall_min_rerank_threshold_parsing(monkeypatch, tmp_path):
+    """统一相关度门阈值：缺省 0.5；显式 0 = 关闭；非法值 fail-fast 与既有
+    数值档一致（float() ValueError）；env/file 两档同通道。"""
+    dd = _data_dir(monkeypatch, tmp_path)
+    assert Config.from_env().recall_min_rerank == 0.5   # 缺省 0.5
+    monkeypatch.setenv("MEMORY_RECALL_MIN_RERANK", "0")
+    assert Config.from_env().recall_min_rerank == 0.0   # 显式 0 = 关闭
+    monkeypatch.setenv("MEMORY_RECALL_MIN_RERANK", "0.8")
+    assert Config.from_env().recall_min_rerank == 0.8   # env 数值档
+    monkeypatch.setenv("MEMORY_RECALL_MIN_RERANK", "abc")
+    with pytest.raises(ValueError):                     # 非法值 fail-fast
+        Config.from_env()
+    monkeypatch.delenv("MEMORY_RECALL_MIN_RERANK")
+    _write_toml(dd, "recall_min_rerank = 0.7\n")
+    assert Config.from_env().recall_min_rerank == 0.7   # 文件档（TOML 原生 float）
+
+
 def test_server_startup_fails_naming_bad_config_file(tmp_path):
     """语法错 → 物化即失败（属性访问触发 from_env）且错误指明文件。"""
     dd = tmp_path / "bad"

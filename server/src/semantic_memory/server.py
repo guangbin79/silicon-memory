@@ -459,9 +459,35 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
     if len(kept) != len(hits):
         filter_stats["noise"] = len(hits) - len(kept)
         hits = kept
+    # 统一相关度门：只认「当前查询重排分」——未打分条目（跨项目 extras 携带的
+    # 是共注入边权重，非相关分）先按当前查询补打分再过阈值；不用低分条目补足
+    # limit。reranker 未配置（纯 BM25/重排关闭）→ 门静默不生效，部署行为不变；
+    # 配置在但打不出分（超预算/异常）→ gate_degraded，hits 保留给手动查询不过滤
+    threshold = cfg.recall_min_rerank
+    gate_failed = False
+    if threshold > 0 and hits:
+        unscored = [h for h in hits if not h.get("reranked")]
+        if unscored and reranker is not None and reranker.available:
+            scored = reranker.rerank(q, [(h["uid"], h["content"]) for h in unscored])
+            if scored is None:
+                gate_failed = True
+            else:
+                by_uid = dict(scored)
+                for h in unscored:
+                    if h["uid"] in by_uid:
+                        h["score"] = round(by_uid[h["uid"]], 6)
+                        h["reranked"] = True
+        if not gate_failed:
+            low_uids = {h["uid"] for h in hits
+                        if h.get("reranked") and h["score"] < threshold}
+            if low_uids:
+                filter_stats["low_score"] = len(low_uids)
+                hits = [h for h in hits if h["uid"] not in low_uids]
     out = {"hits": hits}
     if filter_stats:
         out["filter_stats"] = filter_stats
+    if gate_failed:
+        out["gate_degraded"] = "rerank unavailable"
     if gpu_breaker.tripped():
         # 熔断期：注入是干扰不是帮助（用户裁定：达不到准确不如不用）——
         # 响应带降级标记，插件据此停止注入；BM25 召回本体照常（工具显式调用可用）

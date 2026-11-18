@@ -751,3 +751,81 @@ def test_recall_filters_legacy_task_receipts(client):
     assert uid in {h["uid"] for h in hits}
     assert all("actor=" not in h["content"] for h in hits)  # 回执不出 hits
     assert body["filter_stats"]["noise"] >= 1
+
+
+# ---------------- 统一相关度门：rerank 分阈值（MEMORY_RECALL_MIN_RERANK） ----------------
+
+class _GateReranker:
+    """可编程重排桩：scored=None 模拟配置在但打不出分（超预算/异常）；
+    否则对任意候选集按 uid 映射回分（当前查询相关分）。"""
+
+    available = True
+
+    def __init__(self, scored: dict[str, float] | None):
+        self.scored = scored
+
+    def rerank(self, query, candidates):
+        if self.scored is None:
+            return None
+        return [(u, self.scored[u]) for u, _ in candidates if u in self.scored]
+
+
+def _gate_on(monkeypatch, reranker, threshold=0.5):
+    monkeypatch.setattr(server, "reranker", reranker)
+    object.__setattr__(server.cfg, "recall_min_rerank", threshold)
+
+
+def test_recall_gate_drops_low_rerank_scores(client, monkeypatch):
+    """threshold 0.5：低分条目出局且不用低分条目补足 limit，
+    filter_stats.low_score 计数，高分条目带 reranked/score。"""
+    uid_hi = server.store.store("门限验证高分条目 QXgateH", kind="fact", project="gate-proj")
+    uid_lo = server.store.store("门限验证低分条目 QXgateL", kind="fact", project="gate-proj")
+    _gate_on(monkeypatch, _GateReranker({uid_hi: 0.9, uid_lo: 0.1}))
+    body = client.post("/recall", json={
+        "query": "门限验证", "limit": 5, "project": "gate-proj"}).json()
+    assert [h["uid"] for h in body["hits"]] == [uid_hi]  # 不补足 limit
+    assert body["hits"][0]["reranked"] is True and body["hits"][0]["score"] == 0.9
+    assert body["filter_stats"]["low_score"] == 1
+
+
+def test_recall_gate_rescores_cross_extras(client, monkeypatch):
+    """跨项目 co_injection 附加条目按当前查询补打分：低分被丢（边权重 4.0 不再
+    直出）、高分保留且 cross_kind/via_uid 原样。"""
+    ua = server.store.store("门限图谱种子条目 QXgx", kind="fact", project="gate-a")
+    ub = server.store.store("门限跨项目同源条目 QXgy", kind="fact", project="gate-b")
+    server.store.record_injection("opencode", "context", "q", [ua, ub], chars=64)
+    _gate_on(monkeypatch, _GateReranker({ua: 0.9, ub: 0.1}))
+    body = client.post("/recall", json={
+        "query": "门限图谱种子条目", "limit": 3, "project": "gate-a"}).json()
+    assert {h["uid"] for h in body["hits"]} == {ua}          # 低分 extras 出局
+    assert body["filter_stats"]["low_score"] == 1
+    _gate_on(monkeypatch, _GateReranker({ua: 0.9, ub: 0.95}))
+    body = client.post("/recall", json={
+        "query": "门限图谱种子条目", "limit": 3, "project": "gate-a"}).json()
+    extra = next(h for h in body["hits"] if h["uid"] == ub)  # 高分 extras 保留
+    assert extra["cross_kind"] == "co_injection" and extra["via_uid"] == ua
+    assert extra["reranked"] is True and extra["score"] == 0.95
+
+
+def test_recall_gate_degraded_when_reranker_cannot_score(client, monkeypatch):
+    """threshold>0 且重排打不出分（返回 None）：响应含 gate_degraded、
+    hits 保留给手动查询、不过滤。"""
+    uid_a = server.store.store("降级验证条目甲 QXgd1", kind="fact", project="gate-proj")
+    uid_b = server.store.store("降级验证条目乙 QXgd2", kind="fact", project="gate-proj")
+    _gate_on(monkeypatch, _GateReranker(None))
+    body = client.post("/recall", json={
+        "query": "降级验证", "limit": 5, "project": "gate-proj"}).json()
+    assert {h["uid"] for h in body["hits"]} == {uid_a, uid_b}
+    assert body["gate_degraded"]
+    assert "filter_stats" not in body                       # 不过滤零计数
+
+
+def test_recall_gate_silent_without_reranker(client):
+    """纯 BM25/重排关闭部署行为不变：reranker 未配置时门静默不生效——
+    无 gate_degraded、无过滤（threshold 缺省即 >0 也不降级）。"""
+    assert server.reranker.available is False  # 测试基座：MEMORY_RERANK_MODEL=空
+    uid = server.store.store("无重排部署条目 QXgd3", kind="fact", project="gate-proj")
+    body = client.post("/recall", json={
+        "query": "无重排部署", "limit": 5, "project": "gate-proj"}).json()
+    assert {h["uid"] for h in body["hits"]} == {uid}
+    assert "gate_degraded" not in body and "filter_stats" not in body

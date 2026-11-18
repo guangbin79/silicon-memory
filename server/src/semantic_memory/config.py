@@ -129,6 +129,7 @@ class Config:
     inject_boost: float        # 遥测反哺强度：score × (1 + α·ln(1+注入次数))；0 = 关闭
     recall_min_cosine: float   # 纯向量命中（无 BM25 支持）的余弦门限；0 = 关闭
     recall_max_cosine: float   # 冗余上限：纯向量命中 cos 高于此值出局（过近=冗余）；1.0 = 关闭
+    recall_min_rerank: float   # 统一相关度门：当前查询重排分低于此值出局；0 = 关闭（纯 BM25/重排关闭部署不受影响）
     # ---- 跨项目图谱（查询侧派生边：取代链/共注入/同义跨域；见 graph.py）----
     cross_project: bool       # MEMORY_CROSS_PROJECT=0 关闭（默认开）
     cross_limit: int          # /recall 项目查询追加的跨项目条目上限（不占主配额）
@@ -245,6 +246,7 @@ class Config:
             inject_boost=float(s("MEMORY_INJECT_BOOST", "inject_boost", "0.15")),
             recall_min_cosine=float(s("MEMORY_RECALL_MIN_COSINE", "recall_min_cosine", "0.45")),
             recall_max_cosine=float(s("MEMORY_RECALL_MAX_COSINE", "recall_max_cosine", "0.92")),
+            recall_min_rerank=float(s("MEMORY_RECALL_MIN_RERANK", "recall_min_rerank", "0.5")),
             cross_project=_bool(
                 "MEMORY_CROSS_PROJECT", "cross_project",
                 True, lambda v: v != "0"),
