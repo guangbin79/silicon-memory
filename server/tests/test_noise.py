@@ -101,6 +101,9 @@ NOISE_SAMPLES = [
     "Verification task ag-e0478b completed, all checks green.",
     "交付任务ag-6c673c已合并但origin未同步，需派发方自推",
     "任务 ag-e7e28d 交付失败（local_target_dirty），环境保留",
+    # 新任务引导词变体（2026-11-18 live 实证）：引导词组漏「新任务」致漏判
+    "新任务 ag-6f53fa 交付失败（local_target_dirty）——已 blocked"
+    "（非质量问题，不计连败）；需核对远端/网络状态后重派或取消。",
 ]
 
 KEEP_SAMPLES = [
@@ -141,6 +144,7 @@ KEEP_SAMPLES = [
     # 回执变形引导词/动词的询问反例：无紧随回执形态不误杀
     "验证任务 ag-e2cbf3 的流程是什么",
     "任务 ag-e2cbf3 交付失败的原因可能有哪些",
+    "新任务 ag-x 的交付失败原因可能有哪些",
 ]
 
 

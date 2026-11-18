@@ -89,8 +89,8 @@ _KEYWORDS = re.compile(
 # 验收命令」）不误拒——原话优先语义锚定。
 _RELAY_LEAD = re.compile(
     r"^\s*(?:\[[^\]]{1,32}\]\s*)?"        # 可选方括号前缀（如 [agora]）
-    # 引导词（含中文修饰）；Verification task 为 2026-11-18 live 回执变形
-    r"(?:Verification\s+task\s+|task\s+|(?:验证任务|交付任务|任务)\s*)?"
+    # 引导词（含中文修饰）；Verification task/新任务 为 2026-11-18 live 回执变形
+    r"(?:Verification\s+task\s+|task\s+|(?:验证任务|交付任务|新任务|任务)\s*)?"
     r"(?:ag|gt|task)-[A-Za-z0-9]{1,32}"   # 任务号
     # 多任务并列（2026-11-18 live 实证）：「ag-a 和 ag-b 已进入验证门」
     r"(?:\s*[和、,，]\s*(?:ag|gt|task)-[A-Za-z0-9]{1,32})*"
