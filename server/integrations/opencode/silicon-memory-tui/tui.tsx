@@ -9,6 +9,7 @@
 // 入口约定：目录下 ./tui 解析为本文件（tui.tsx）。
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
+import { displayBlock } from "./display"
 
 const SERVICE = (process.env.MEMORY_PLUGIN_URL ?? "http://127.0.0.1:8765").replace(/\/$/, "")
 const POLL_MS = 5000
@@ -124,7 +125,7 @@ export function SidebarMemory(props: { context: Plugin.Context; sessionID: strin
               <text fg={theme.text.muted}>{rel(inj().ts)} · {inj().project ?? "-"} · {inj().hook}</text>
             </box>
             <Show when={view.open}>
-              <text fg={theme.text.base}>{inj().block ?? ""}</text>
+              <text fg={theme.text.base}>{displayBlock(inj().block)}</text>
             </Show>
           </box>
         )}

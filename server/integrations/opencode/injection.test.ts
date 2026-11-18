@@ -89,6 +89,12 @@ describe("formatBlock：注入块格式与预算封顶", () => {
     })
   })
 
+  test("header 引导语后恰一空行再接首条 meta（无第二个连续空行）", () => {
+    const block = formatBlock([{ uid: "u", content: "正文", kind: "fact", project: "p" }])
+    expect(block).toContain("以当前会话为准：\n\n- [fact] [project: p]\n  正文\n")
+    expect(block).not.toContain("以当前会话为准：\n\n\n")
+  })
+
   test("条目格式：元数据前置一行（kind/project/cross-project），正文缩进次行", () => {
     const block = formatBlock([{ uid: "u", content: "偏好", kind: "preference", project: "p", cross_kind: "co_injection" }])
     expect(block).toContain("[preference]")
