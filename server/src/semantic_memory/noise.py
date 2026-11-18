@@ -36,6 +36,19 @@ _BOILERPLATE = (
 # ["']? 防 JSON 引号包装；无裁判直存路径残留见评审 A-W1）
 _CREDENTIAL_TOKEN = re.compile(
     r"[\"']?token[\"']?\s*[:：]\s*[\"']?[0-9a-zA-Z_\-]{40,}", re.IGNORECASE)
+# 凭据 artifact 明文形态（2026-11-18 live /recal 实证，安全优先）：行首
+# credential（IGNORECASE 兼小写）＋可选引导词（:/token/for task）＋任务号
+# （可无 token——裸 Credential ag-x 亦是派发凭据回显）或 token/is/=/: 后
+# ≥40 hex。锚行首＋引导词封闭集，含 credential 单词的知识句（OAuth
+# credential rotation policy…）不以 credential 行首开头，不误杀
+_CREDENTIAL_ARTIFACT = re.compile(
+    r"^[ \t]*(?:\[[^\]]{1,32}\][ \t]*)?"
+    r"credential"
+    r"(?:[ \t]*[:：]|[ \t]+(?:for|task|token))*[ \t]*"
+    r"(?:(?:ag|gt|task)-[A-Za-z0-9]{1,32}"
+    r"(?:[ \t]*(?:with[ \t]+token|is|=|[:：])[ \t]*[0-9a-f]{40,})?"
+    r"|[0-9a-f]{40,})",
+    re.IGNORECASE | re.MULTILINE)
 # 派发页回显行：BOOT 三件套的 page:/env: 纯路径行——行级精确判，「正文
 # 同行提及 page:/env:」的知识附言不误杀（终闸 B 册实证）
 _ECHO_PAGE = re.compile(r"^page:\s*\S+\s*$")
@@ -76,7 +89,8 @@ _KEYWORDS = re.compile(
 # 验收命令」）不误拒——原话优先语义锚定。
 _RELAY_LEAD = re.compile(
     r"^\s*(?:\[[^\]]{1,32}\]\s*)?"        # 可选方括号前缀（如 [agora]）
-    r"(?:task\s+|(?:验证任务|交付任务|任务)\s*)?"  # 可选引导词（含中文修饰）
+    # 引导词（含中文修饰）；Verification task 为 2026-11-18 live 回执变形
+    r"(?:Verification\s+task\s+|task\s+|(?:验证任务|交付任务|任务)\s*)?"
     r"(?:ag|gt|task)-[A-Za-z0-9]{1,32}"   # 任务号
     # 多任务并列（2026-11-18 live 实证）：「ag-a 和 ag-b 已进入验证门」
     r"(?:\s*[和、,，]\s*(?:ag|gt|task)-[A-Za-z0-9]{1,32})*"
@@ -87,8 +101,9 @@ _RELAY_LEAD = re.compile(
     r"|(?:has\s+)?entered|entering|result|milestones?|answer"
     r"|in verification (?:state|stage|phase)"
     # 「但」仅并入合并动词分支（终闸 A/C 册：入共享边界集会误杀「已完成但
-    # +知识正文」——回执证据形只有「已合并但 origin 未同步」）
-    r"|完成|关闭|取消|合并但?|入验证门|进入验证门|重新打开)"
+    # +知识正文」——回执证据形只有「已合并但 origin 未同步」）；但后可紧
+    # 接续文（无边界空格形态），验证中/交付失败为 2026-11-18 live 回执变形
+    r"|完成|关闭|取消|合并(?:但.*)?|入验证门|进入验证门|验证中|交付失败|重新打开)"
     # 边界含全角左括号：agorad 回执带「（actor=ses_…）」注解——只认右括号会整条漏拒
     r"(?=$|\s|[，。；：！？、,.;:!?)）】」\-'—（])", re.IGNORECASE)
 # 无任务号的固定里程碑短语头（agorad 无号 relay 形态）
@@ -143,10 +158,12 @@ NOISE_PREFIXES: tuple = ()
 
 
 def _is_credential(content: str) -> bool:
-    """凭据行/条判定：前缀表凭据行（如 agora 临时牌）、pypi 令牌、token: 后 ≥40 位串。"""
+    """凭据行/条判定：前缀表凭据行（如 agora 临时牌）、pypi 令牌、token: 后
+    ≥40 位串、行首 credential artifact 形态（任务号可无 token，安全优先）。"""
     return (any(f"{p} credential" in content for p in NOISE_PREFIXES)
             or "pypi-AgEI" in content
-            or _CREDENTIAL_TOKEN.search(content) is not None)
+            or _CREDENTIAL_TOKEN.search(content) is not None
+            or _CREDENTIAL_ARTIFACT.search(content) is not None)
 
 
 def is_task_event_noise(content: str) -> bool:
