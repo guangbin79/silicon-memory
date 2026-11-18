@@ -174,6 +174,40 @@ describe("熔断降级语义（停止注入优于劣质注入）", () => {
   })
 })
 
+describe("注入质量门（gate_degraded）与头块命中序（去自增强）", () => {
+  test("召回响应带 gate_degraded → recallBlock 返回 null（不注入）", async () => {
+    stubFetch(() => ({ hits: [{ uid: "u1", content: "c", kind: "fact", project: "p" }], gate_degraded: "rerank unavailable" }))
+    const st = stateOf("gate-degraded")
+    expect(await recallBlock("q", "p", st)).toBeNull()
+  })
+  test("gate_degraded 期 buildHeadBlock 返回 undefined（重试语义）", async () => {
+    stubFetch(() => ({ hits: [{ uid: "u1", content: "c", kind: "preference", project: "p" }], gate_degraded: "x" }))
+    expect(await buildHeadBlock("q", "p")).toBeUndefined()
+  })
+  test("gpu_degraded 与 gate_degraded 同时在 → 仍降级（任一即停）", async () => {
+    stubFetch(() => ({ hits: [{ uid: "u1", content: "c", kind: "fact", project: "p" }], gpu_degraded: "a", gate_degraded: "b" }))
+    const st = stateOf("gate-both")
+    expect(await recallBlock("q", "p", st)).toBeNull()
+  })
+  test("buildHeadBlock 按召回序取前两条 preference/decision——高 injections 旧条目不再抢占首位，跨项目条目仍排除", async () => {
+    // 头块去自增强（2026-11）：按 injections/updated_at 排序会让历史注入次数
+    // 滚雪球钉死头块；召回序（重排序）即当前相关序
+    stubFetch(() => ({ hits: [
+      { uid: "u1", content: "本域事实", kind: "fact", project: "p" },
+      { uid: "u2", content: "本域偏好甲 hd2", kind: "preference", project: "p", injections: 0, updated_at: 1 },
+      { uid: "u3", content: "本域决策乙 hd3", kind: "decision", project: "p", injections: 1, updated_at: 2 },
+      { uid: "u4", content: "高注入旧偏好 hd4", kind: "preference", project: "p", injections: 99, updated_at: 9 },
+      { uid: "u5", content: "他域偏好 hd5", kind: "preference", project: "other", cross_kind: "co_injection", injections: 100, updated_at: 10 },
+    ] }))
+    const head = await buildHeadBlock("q", "p")
+    expect(head).toContain("本域偏好甲 hd2")
+    expect(head).toContain("本域决策乙 hd3")
+    expect(head).not.toContain("高注入旧偏好 hd4")   // 命中序前两条之外
+    expect(head).not.toContain("他域偏好 hd5")       // cross_kind 排除
+    expect(head!.indexOf("本域偏好甲 hd2")).toBeLessThan(head!.indexOf("本域决策乙 hd3"))
+  })
+})
+
 describe("hashOf：注入集合指纹", () => {
   test("顺序无关，集合相同哈希相同", () => {
     expect(hashOf(["b", "a"])).toBe(hashOf(["a", "b"]))

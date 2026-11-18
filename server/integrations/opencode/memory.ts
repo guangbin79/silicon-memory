@@ -272,6 +272,7 @@ interface Hit {
   via_uid?: string;       // 经由的主结果 uid（边源种子）
   updated_at?: number;
   injections?: number;
+  reranked?: boolean;     // 分数来自当前查询重排（服务端相关度门依据）；缺省 = RRF/边权重分
 }
 
 /** 记忆内容是不可信数据：剥除边界标签防止逃逸包裹。 */
@@ -553,7 +554,8 @@ type StableCtx = Parameters<Parameters<typeof Plugin.define>[0]["setup"]>[0];
 /**
  * 召回（两条加载线共用）。返回 null = 服务不可达 / 无查询。
  * globalMemories 开启时 /recall 随传 global_limit=2（服务端项目条目在前、不挤占配额）。
- * degraded=true = 服务端已熔断（CUDA 上下文损坏）——注入是干扰不是帮助，停止注入。
+ * degraded=true = 服务端已熔断（gpu_degraded）或注入质量门不可评估（gate_degraded）——
+ * 劣质召回是干扰不是帮助，停止注入。
  */
 export async function recallHits(query: string, limit: number, project: string | undefined): Promise<{ hits: Hit[]; degraded: boolean } | null> {
   if (!(await ensureService())) return null;
@@ -565,28 +567,23 @@ export async function recallHits(query: string, limit: number, project: string |
     ...(cfg.globalMemories ? { global_limit: 2 } : {}),
   });
   if (!res) return null;
-  return { hits: res.hits ?? [], degraded: !!res.gpu_degraded };
+  return { hits: res.hits ?? [], degraded: !!res.gpu_degraded || !!res.gate_degraded };
 }
 
 /**
- * 冻结头块：偏好/决策 top2（injections desc + updated_at desc，客户端排序），
- * 每会话只算一次、字节冻结。undefined = 服务不可达（推迟到下个钩子重试）；
- * "" = 本次召回无偏好/决策命中（冻结为空，不再重算）。
+ * 冻结头块：召回序前两条本域 preference/decision，每会话只算一次、字节冻结。
+ * 按召回序取（重排序即当前相关序）——不按 injections/updated_at 排序：历史注入
+ * 次数自增强会让老条目滚雪球钉死头块（2026-11 去自增强）。
+ * undefined = 服务不可达（推迟到下个钩子重试）；"" = 本次召回无偏好/决策命中（冻结为空，不再重算）。
  */
 export async function buildHeadBlock(query: string, project: string | undefined): Promise<string | undefined> {
   const r = await recallHits(query, 20, project);
   if (!r) return undefined;
-  if (r.degraded) return undefined;  // 熔断期：undefined＝下个钩子重试（服务重启后恢复）
-  const hits = r.hits;
-  const head = hits
+  if (r.degraded) return undefined;  // 熔断/门降级期：undefined＝下个钩子重试（服务恢复后重建）
+  const head = r.hits
     // 排除跨项目附加条目：extras 保留目标行原始 kind（可为 preference/decision）
     // 且带真实注入计数，不排除则他项目偏好可钉进整会话的冻结头块（task11 不变量）
     .filter((h) => !h.cross_kind && (h.kind === "preference" || h.kind === "decision"))
-    .sort(
-      (a, b) =>
-        Number(b.injections ?? 0) - Number(a.injections ?? 0) ||
-        Number(b.updated_at ?? 0) - Number(a.updated_at ?? 0),
-    )
     .slice(0, 2);
   return head.length ? formatBlock(head) : "";
 }
