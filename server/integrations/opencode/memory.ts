@@ -288,11 +288,15 @@ export function formatBlock(hits: Hit[]): string {
   let used = out.length;
   let conflict = false;
   let first = true;
+  // 折行字符集（UAX#14 强制断行类＋CR）：\r\n? 整体视为一个断行
+  const BREAK_RE = /\r\n?|[\f\v\u2028\u2029\u0085]/g;
+  // 元数据字段同为不可信数据（/ingest 不校验 kind/project 字符集，ocr 轮2）：折行（含裸 \n）压成空格，meta 恒单行防伪造列 0 行
+  const flat = (s: string) => s.replace(/\r\n?|[\n\f\v\u2028\u2029\u0085]/g, " ");
   for (const h of hits) {
     // 元数据前置一行（正文很长时元数据不被挤到行尾），正文整体缩进两格、多行逐行缩进，条目间空一行
-    const meta = `- [${h.kind}]${h.project ? ` [project: ${h.project}]` : ""}${h.cross_kind ? ` [cross-project: ${h.cross_kind}]` : ""}${h.conflict ? ` ⚠conflict [uid: ${h.uid}]` : ""}\n`;
-    // CR/FF/U+2028/U+2029 与 \n 同归一行分隔（终闸 C 册：裸 \r 等可让伪造元数据/policy 行回列 0），空行不缩进免尾随空白
-    const body = sanitizeMemory(h.content).replace(/\r\n?|[\f\u2028\u2029]/g, "\n").split("\n").map((l) => (l ? `  ${l}` : "")).join("\n");
+    const meta = `- [${flat(h.kind)}]${h.project ? ` [project: ${flat(h.project)}]` : ""}${h.cross_kind ? ` [cross-project: ${flat(h.cross_kind)}]` : ""}${h.conflict ? ` ⚠conflict [uid: ${flat(h.uid)}]` : ""}\n`;
+    // CR/VT/NEL/FF/U+2028/U+2029 与 \n 同归一行分隔（终闸 C 册：裸分隔符可让伪造元数据/policy 行回列 0）；纯空白行不缩进免尾随空白
+    const body = sanitizeMemory(h.content).replace(BREAK_RE, "\n").split("\n").map((l) => (l.trim() ? `  ${l}` : "")).join("\n");
     const entry = (first ? "" : "\n") + meta + body + "\n";
     if (used + entry.length > cfg.budget) break; // 超预算整条丢弃，绝不截半条
     if (h.conflict) conflict = true;
