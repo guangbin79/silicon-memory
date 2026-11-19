@@ -849,6 +849,32 @@ function cmdSelfcheck() {
           && klSkip.rc === 0 && klSkip.out.includes('union merge rule: skipped (no git root)'),
           'union rule skip: 上行无 .git → 跳过零写入且 lint rc 不变');
         fs.rmSync(nogit, { recursive: true, force: true });
+
+        // 范围 A 自动 commit：真 git init 夹具——追加成功恰 1 commit、subject 严格相等、只含 .gitattributes、二次 lint 零新 commit
+        const grepo = path.join(fixture, 'autocommit-repo');
+        spawnSync('git', ['init', '--quiet', grepo], { stdio: 'ignore' });
+        const gk = path.join(grepo, 'docs', 'agents', 'knowledge');
+        fs.mkdirSync(path.join(gk, 'modules'), { recursive: true });
+        fs.writeFileSync(path.join(gk, 'knowledge-index.md'), idxText);
+        fs.writeFileSync(path.join(gk, 'log.md'), '# Knowledge Log\n');
+        fs.writeFileSync(path.join(gk, 'modules', 'auth.md'), '# Auth\n');
+        fs.writeFileSync(path.join(gk, 'modules', 'cache.md'), '# Cache\n');
+        const gitEnvKeys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'];
+        const gitEnvSaved = Object.fromEntries(gitEnvKeys.map((k) => [k, process.env[k]]));
+        Object.assign(process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t.t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t.t' });
+        try {
+          const gout = (args) => (spawnSync('git', ['-C', grepo, ...args], { encoding: 'utf8' }).stdout || '').trim();
+          const klAuto1 = cmdKnowledgeLint(gk);
+          const autoOk = klAuto1.rc === 0 && gout(['rev-list', '--count', 'HEAD']) === '1'
+            && gout(['log', '-1', '--format=%s']) === 'chore: add union merge driver for append-only knowledge files'
+            && gout(['show', 'HEAD', '--name-only', '--format=']) === '.gitattributes'
+            && gout(['show', 'HEAD:.gitattributes']).split('\n').filter((l) => l.includes('merge=union')).length === 2;
+          const klAuto2 = cmdKnowledgeLint(gk);
+          ok(autoOk && gout(['rev-list', '--count', 'HEAD']) === '1',
+            'union rule autocommit: 追加成功恰 1 commit（subject/pathspec/两行规则）且二次 lint 零新 commit');
+        } finally {
+          gitEnvKeys.forEach((k) => { if (gitEnvSaved[k] === undefined) delete process.env[k]; else process.env[k] = gitEnvSaved[k]; });
+        }
       }
     }
 
@@ -1213,6 +1239,7 @@ function scanBrokenLinks(kroot, pages) {
 // Tier 1 union merge 规则：log.md/feedback.md 为 append-only 日志——merge=union 免并行追加丢行；
 // 行级 trim 等性判在场（位置无关，容忍 CRLF/行尾空白），缺失只在文件尾追加，永不改删既有行
 const UNION_MERGE_RULES = ['docs/agents/knowledge/log.md merge=union', 'docs/agents/knowledge/feedback.md merge=union'];
+const UNION_COMMIT_MSG = 'chore: add union merge driver for append-only knowledge files';
 
 function ensureUnionMergeRules(knowledgeRoot) {
   // 规则 pattern 为 repo 根相对：repoRoot＝自 knowledgeRoot 上行首个含 .git 的目录（同 scanBrokenLinks 探测语义）；
@@ -1239,6 +1266,16 @@ function ensureUnionMergeRules(knowledgeRoot) {
       // 写失败降级不崩：rc 语义不变（union 不入 findings），stderr 告警不污染 stdout 契约（B 册终闸）
       process.stderr.write(`union merge rule: 追加失败（${ga} 只读或非常规文件？）: ${e.message}\n`);
       return { appended: [] };
+    }
+    // 范围 A：追加成功即自动 commit，规则才能随版本库分发到其他 clone；仅此 pathspec、绝不 push。
+    // commit 失败（非真仓/无 identity/只读/rebase 中途）降级＝stderr 一行警告，appended 照实、lint rc 不变。
+    // 新建 .gitattributes 未跟踪时 partial-commit pathspec 只认已跟踪文件 → 先 add 此路径再 commit（同款仅此 pathspec）
+    let gc = spawnSync('git', ['-C', repoRoot, 'add', '--', '.gitattributes'], { encoding: 'utf8' });
+    if (!gc.error && gc.status === 0) {
+      gc = spawnSync('git', ['-C', repoRoot, 'commit', '-m', UNION_COMMIT_MSG, '--', '.gitattributes'], { encoding: 'utf8' });
+    }
+    if (gc.error || gc.status !== 0) {
+      process.stderr.write(`union merge rule: 自动 commit 失败（${(gc.error ? gc.error.message : gc.stderr).toString().split('\n').find(Boolean)}）\n`);
     }
   }
   return { appended };
