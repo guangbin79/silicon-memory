@@ -870,9 +870,33 @@ function cmdSelfcheck() {
             && gout(['show', 'HEAD', '--name-only', '--format=']) === '.gitattributes'
             && gout(['show', 'HEAD:.gitattributes']).split('\n').filter((l) => l.includes('merge=union')).length === 2;
           const klAuto2 = cmdKnowledgeLint(gk);
-          ok(autoOk && gout(['rev-list', '--count', 'HEAD']) === '1',
+          ok(autoOk && klAuto2.rc === 0 && !klAuto2.out.includes('appended(') && gout(['rev-list', '--count', 'HEAD']) === '1',
             'union rule autocommit: 追加成功恰 1 commit（subject/pathspec/两行规则）且二次 lint 零新 commit');
         } finally {
+          gitEnvKeys.forEach((k) => { if (gitEnvSaved[k] === undefined) delete process.env[k]; else process.env[k] = gitEnvSaved[k]; });
+        }
+
+        // B1 回归：无 identity（CI 常态）→ ident 探针先行降级，零新 commit 且零暂存区残留（add 前拦截）
+        const nrepo = path.join(fixture, 'noident-repo');
+        spawnSync('git', ['init', '--quiet', nrepo], { stdio: 'ignore' });
+        spawnSync('git', ['-C', nrepo, 'config', 'user.useConfigOnly', 'true'], { stdio: 'ignore' });
+        const nk = path.join(nrepo, 'docs', 'agents', 'knowledge');
+        fs.mkdirSync(path.join(nk, 'modules'), { recursive: true });
+        fs.writeFileSync(path.join(nk, 'knowledge-index.md'), idxText);
+        fs.writeFileSync(path.join(nk, 'log.md'), '# Knowledge Log\n');
+        fs.writeFileSync(path.join(nk, 'modules', 'auth.md'), '# Auth\n');
+        fs.writeFileSync(path.join(nk, 'modules', 'cache.md'), '# Cache\n');
+        const savedGlobal = process.env.GIT_CONFIG_GLOBAL;
+        process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+        gitEnvKeys.forEach((k) => delete process.env[k]);
+        try {
+          const kln = cmdKnowledgeLint(nk);
+          const staged = (spawnSync('git', ['-C', nrepo, 'diff', '--cached', '--name-only'], { encoding: 'utf8' }).stdout || '').trim();
+          const hasHead = spawnSync('git', ['-C', nrepo, 'rev-parse', '--verify', '--quiet', 'HEAD'], { encoding: 'utf8' }).status === 0;
+          ok(kln.rc === 0 && kln.out.includes('appended') && staged === '' && !hasHead,
+            'union rule noident: 无 identity → 零新 commit 且零暂存区残留（ident 探针先降级）');
+        } finally {
+          if (savedGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = savedGlobal;
           gitEnvKeys.forEach((k) => { if (gitEnvSaved[k] === undefined) delete process.env[k]; else process.env[k] = gitEnvSaved[k]; });
         }
       }
@@ -1269,13 +1293,19 @@ function ensureUnionMergeRules(knowledgeRoot) {
     }
     // 范围 A：追加成功即自动 commit，规则才能随版本库分发到其他 clone；仅此 pathspec、绝不 push。
     // commit 失败（非真仓/无 identity/只读/rebase 中途）降级＝stderr 一行警告，appended 照实、lint rc 不变。
+    // ident 探针（git var）与 commit 同源判定：无 identity（CI 常态）在 add 前拦截，免 add 成功后 commit 失败留 .gitattributes 滞留用户暂存区；
+    // timeout 墙：用户仓 pre-commit 钩子（husky 等）挂起不得拖死 knowledge lint，超时即降级警告。
     // 新建 .gitattributes 未跟踪时 partial-commit pathspec 只认已跟踪文件 → 先 add 此路径再 commit（同款仅此 pathspec）
-    let gc = spawnSync('git', ['-C', repoRoot, 'add', '--', '.gitattributes'], { encoding: 'utf8' });
+    let gc = spawnSync('git', ['-C', repoRoot, 'var', 'GIT_COMMITTER_IDENT'], { encoding: 'utf8', timeout: 30000 });
     if (!gc.error && gc.status === 0) {
-      gc = spawnSync('git', ['-C', repoRoot, 'commit', '-m', UNION_COMMIT_MSG, '--', '.gitattributes'], { encoding: 'utf8' });
+      gc = spawnSync('git', ['-C', repoRoot, 'add', '--', '.gitattributes'], { encoding: 'utf8', timeout: 30000 });
+    }
+    if (!gc.error && gc.status === 0) {
+      gc = spawnSync('git', ['-C', repoRoot, 'commit', '-m', UNION_COMMIT_MSG, '--', '.gitattributes'], { encoding: 'utf8', timeout: 30000 });
     }
     if (gc.error || gc.status !== 0) {
-      process.stderr.write(`union merge rule: 自动 commit 失败（${(gc.error ? gc.error.message : gc.stderr).toString().split('\n').find(Boolean)}）\n`);
+      const reason = gc.error ? gc.error.message : ((gc.stderr || '').split('\n').find(Boolean) ?? `exit=${gc.status ?? '?'} signal=${gc.signal ?? '-'}`);
+      process.stderr.write(`union merge rule: 自动 commit 失败（${reason}）\n`);
     }
   }
   return { appended };
