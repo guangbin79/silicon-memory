@@ -57,7 +57,7 @@ Update path: `git pull && ./install.sh` — the CLI and skills are symlinks into
 |---|---|---|---|
 | Project knowledge (semantic) | distilled conclusions / decisions / strategies per project | each project's `./docs/agents/knowledge/` — in-repo, versioned | project-compound skill, `knowledge ingest` |
 | Global experience (episodic) | raw task experience, portable across projects | configured at install (default `~/.agent-experiences`) | agent-experience skill + `memory capture` |
-| Shared semantic memory (hot) | cross-session recall & automatic injection | configured at install (default `~/.hotmem`) | semantic-memory service (SQLite + BM25 + vectors + distillation) |
+| Shared semantic memory (hot) | cross-session recall & automatic injection | configured at install (default `~/.silicon-memory-hotmem`) | semantic-memory service (SQLite + BM25 + vectors + distillation) |
 
 Facts flow uphill: raw experience is captured automatically, gets distilled into typed facts, and the ones worth keeping as conclusions are **promoted** into the project's knowledge pages — `promote` marks the path, `knowledge ingest` is the LLM process that writes the page.
 
@@ -126,7 +126,7 @@ Umbrella-level options (the two directories plus the plugin's noise table):
 | Option | Default | Description |
 |---|---|---|
 | `SM_EXP_STORE` | `~/.agent-experiences` | Experience store directory (installer asks) |
-| `SM_DATA_DIR` | `~/.hotmem` | Semantic-memory data home: `models/`, db, `config.toml` |
+| `SM_DATA_DIR` | `~/.silicon-memory-hotmem` | Semantic-memory data home: `models/`, db, `config.toml` |
 | `SM_NOISE_PREFIXES` | empty | Comma-separated task-event noise prefixes the plugin skips on capture, e.g. `[agora]` |
 | `MEMORY_DATA_DIR` | from config | Exported to your shell rc; read by the service and plugin |
 

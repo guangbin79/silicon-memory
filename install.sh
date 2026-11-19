@@ -22,7 +22,7 @@ ask() { # <提示> <默认>
   echo "${a:-$2}"
 }
 [ -n "$EXP" ]  || EXP="$(ask '全局经验目录' "$HOME/.agent-experiences")"
-[ -n "$DATA" ] || DATA="$(ask '语义记忆目录' "$HOME/.hotmem")"
+[ -n "$DATA" ] || DATA="$(ask '语义记忆目录' "$HOME/.silicon-memory-hotmem")"
 mkdir -p "$EXP" "$DATA"
 
 # 1. config（agentctl/ae.mjs 与插件共读；写前 diff 保幂等）
@@ -30,7 +30,7 @@ CFGDIR="$HOME/.config/silicon-memory"
 mkdir -p "$CFGDIR"
 [ -f "$CFGDIR/config" ] || : > "$CFGDIR/config"
 # 有效数据目录＝既有 config 的 SM_DATA_DIR（本次改写前读；模型缺失提示按它指路，避免交互默认值误导）
-# 全新装机无既有 config 时，即将生效的就是本次 $DATA（交互缺省时恰为 ~/.hotmem）
+# 全新装机无既有 config 时，即将生效的就是本次 $DATA（交互缺省时恰为 ~/.silicon-memory-hotmem）
 EDATA="$(sed -n 's/^SM_DATA_DIR=//p' "$CFGDIR/config" | tail -1)"
 EDATA="${EDATA:-$DATA}"
 # 合并语义：刷新两枚规范键，保留手加键（如 SM_NOISE_PREFIXES）——重跑不清户

@@ -55,7 +55,7 @@ git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
 |---|---|---|---|
 | 项目知识库（semantic） | 提炼后的项目结论 / 决策 / 策略 | 各项目 `./docs/agents/knowledge/`——随仓版本化 | project-compound 过程，`knowledge ingest` |
 | 全局经验库（episodic） | 原始任务经验，跨项目可移植 | 安装时配置（默认 `~/.agent-experiences`） | agent-experience skill＋`memory capture` |
-| 共享语义记忆（热） | 跨会话检索与自动注入 | 安装时配置（默认 `~/.hotmem`） | semantic-memory 服务（SQLite＋BM25＋向量＋蒸馏） |
+| 共享语义记忆（热） | 跨会话检索与自动注入 | 安装时配置（默认 `~/.silicon-memory-hotmem`） | semantic-memory 服务（SQLite＋BM25＋向量＋蒸馏） |
 
 事实向上流动：原始经验被自动捕获，蒸馏成带类型的事实，值得留作结论的被 **promote** 进项目知识页——`promote` 标记路径，`knowledge ingest` 是写页面的 LLM 过程。
 
@@ -124,7 +124,7 @@ silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 P
 | 选项 | 默认 | 说明 |
 |---|---|---|
 | `SM_EXP_STORE` | `~/.agent-experiences` | 经验库目录（安装器询问） |
-| `SM_DATA_DIR` | `~/.hotmem` | 语义记忆数据主目录：`models/`、db、`config.toml` |
+| `SM_DATA_DIR` | `~/.silicon-memory-hotmem` | 语义记忆数据主目录：`models/`、db、`config.toml` |
 | `SM_NOISE_PREFIXES` | 空 | 插件捕获时跳过的任务事件噪声前缀（逗号分隔），如 `[agora]` |
 | `MEMORY_DATA_DIR` | 来自 config | 写入 shell rc；服务与插件经 env 读取 |
 
