@@ -668,5 +668,3 @@ def test_rest_recall_response_folded_additive(monkeypatch):
                         raising=False)  # 不触发核心单例（保持 test_rest 的 env 独占）
     out = server_mod.rest_recall({"query": "任意查询", "limit": 5})
     assert out == {"hits": [], "folded": 3}
-
-
