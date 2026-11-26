@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ae capture --from 预检闸 selftest — 自含：临时 --store fixture；模式对齐 test-capture-write.sh。
-# 用例（dream ag-4b1d5d 收窄谓词＋已处置豁免）：
-#   ① 同 project+type 但 tags 无交集且 summary/根因关键词不重叠 → 不拦直接落盘
+# 用例（dream ag-4b1d5d 收窄谓词＋已处置豁免；ag-581248 评审 I-1：关键词面停用词/长度过滤＋阈值 ≥2）：
+#   ① 同 project+type 停用词密集自然语句：仅虚词撞车（the/on），零过滤后共享键 → 不拦直接落盘
 #   ② tags 交集命中未处置 → rc2 零写（stderr 列候选；INDEX 对拍）
 #   ③ 命中但草稿 related: 已链 → 放行
 #   ④ --force-new → 放行
-#   ⑤ summary 关键词重叠（tags 无交集）→ rc2 零写
+#   ⑤ summary 共享 1 个过滤后实义词（低于 ≥2 阈值）→ 不拦直接落盘
+#   ⑤b 两段 summary 共享 ≥2 个过滤后实义词（timeout/release）→ rc2 零写
 #   ⑥ 根因段关键词重叠（debug 型，tags/summary 均不相交）→ rc2 零写
 #   ⑦ 未知旗标拒绝 rc2
 set -u
@@ -87,7 +88,7 @@ id | date | type | project | summary | tags
 20260101-000000-dddd | 2026-01-01 | debug | gateproj | parser tolerance investigation | parser,tolerance
 EOF
 
-# 草稿①：同 project+type，tags 无交集、summary 词汇不相交 → 不拦
+# 草稿①：同 project+type，停用词密集自然语句——与底座 A 仅经虚词（on）撞车，零过滤后共享键 → 不拦
 cat > "$FIX/d1-nohit.md" <<'EOF'
 ---
 created_at: 2026-11-26
@@ -95,7 +96,7 @@ type: decision
 project: gateproj
 status: draft
 schema_version: 3
-summary: release cadence quarterly review
+summary: The flaky timeout in the worker pool was fixed on time for the release
 tags: cadence,quarterly
 Evidence: E1 transcript
 ---
@@ -126,7 +127,7 @@ EOF
 # 草稿③：命中但 related: 已链底座 A → 放行
 sed 's/^tags: vendor,migration$/tags: vendor,migration\nrelated: 20260101-000000-aaaa/' "$FIX/d2-taghit.md" > "$FIX/d3-related.md"
 
-# 草稿⑤：tags 无交集但 summary 共享关键词 vendor → rc2
+# 草稿⑤：tags 无交集但 summary 仅共享 1 个实义词 vendor（低于 ≥2 阈值）→ 不拦
 cat > "$FIX/d5-keyword.md" <<'EOF'
 ---
 created_at: 2026-11-26
@@ -140,6 +141,24 @@ Evidence: E1 transcript
 ---
 
 # vendor strategy differs
+
+body
+EOF
+
+# 草稿⑤b：tags 无交集，summary 与草稿①落盘记录共享 timeout/release 两个实义词 → rc2
+cat > "$FIX/d5b-threshold.md" <<'EOF'
+---
+created_at: 2026-11-26
+type: decision
+project: gateproj
+status: draft
+schema_version: 3
+summary: timeout guard during release window
+tags: guard,window
+Evidence: E1 transcript
+---
+
+# timeout guard during release window
 
 body
 EOF
@@ -163,11 +182,11 @@ Evidence: E1 transcript
 字段偏移复现于新样本
 EOF
 
-# ① 无交集不拦：rc0 + 落盘
+# ① 停用词密集：仅虚词撞车零有效共享键 → 不拦：rc0 + 落盘
 out=$("$NODE" "$AE" --store "$STORE" capture --from "$FIX/d1-nohit.md" 2>"$FIX/e1")
 rc=$?
-[ "$rc" -eq 0 ] && [ "$(nexp)" -eq 3 ] && grep -q "release cadence quarterly review" "$STORE/INDEX.md"
-report no-overlap-passes $?
+[ "$rc" -eq 0 ] && [ "$(nexp)" -eq 3 ] && grep -q "The flaky timeout in the worker pool was fixed on time for the release" "$STORE/INDEX.md"
+report stopword-dense-passes $?
 
 # ② tags 交集命中未处置：rc2 + 零写 + stderr 列候选
 n1=$(nexp)
@@ -191,13 +210,19 @@ rc=$?
 [ "$rc" -eq 0 ] && [ "$(nexp)" -eq 5 ]
 report force-new-passes $?
 
-# ⑤ summary 关键词重叠（tags 无交集）→ rc2 零写
+# ⑤ 单实义词共享（低于 ≥2 阈值）：rc0 + 落盘
+out=$("$NODE" "$AE" --store "$STORE" capture --from "$FIX/d5-keyword.md" 2>/dev/null)
+rc=$?
+[ "$rc" -eq 0 ] && [ "$(nexp)" -eq 6 ] && grep -q "vendor strategy differs" "$STORE/INDEX.md"
+report single-content-word-passes $?
+
+# ⑤b 两段 summary 共享 ≥2 个实义词（timeout/release）→ rc2 零写
 n1=$(nexp)
 idx_sig=$(cksum "$STORE/INDEX.md" | cut -d' ' -f1-2)
-"$NODE" "$AE" --store "$STORE" capture --from "$FIX/d5-keyword.md" >/dev/null 2>&1
+"$NODE" "$AE" --store "$STORE" capture --from "$FIX/d5b-threshold.md" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 2 ] && [ "$(nexp)" -eq "$n1" ] && [ "$(cksum "$STORE/INDEX.md" | cut -d' ' -f1-2)" = "$idx_sig" ]
-report summary-keyword-hit-blocks $?
+report two-content-words-block $?
 
 # ⑥ 根因段关键词重叠 → rc2 零写
 n1=$(nexp)

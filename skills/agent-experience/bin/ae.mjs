@@ -141,15 +141,23 @@ function gitCommitStore(store, id) {
 }
 
 // ---- capture 预检闸（dream ag-4b1d5d）：写盘前同 project+type 候选经收窄谓词
-//      （tags 交集≥1 或 summary/根因关键词重叠）命中、且未在草稿 related:/supersedes:
+//      （tags 交集≥1 或 summary/根因关键词重叠：≥2 个不同过滤后键）命中、且未在草稿 related:/supersedes:
 //      链申报、未 --force-new → stderr 列候选＋处置提示，rc2，store 零接触 ----
+// 停用词表（评审 I-1）：无停用词面时任意两段自然语言 summary 近乎必撞，闸自我失效——固定 20 词，勿增删
+const STOP = new Set(['the', 'and', 'for', 'with', 'from', 'this', 'that', 'when', 'then', 'into', 'over', 'also', 'been', 'was', 'are', 'not', 'but', 'you', 'has', 'had']);
 function gateKeywords(s) {
-  // ASCII 词（≥2 字符）＋ CJK 连串二元组（近似词）——机械关键词面，零停用词表
+  // ASCII 实义词（≥3 字符、非纯数字、非停用词）＋含 CJK 字符的二元组（近似词；纯 ASCII 二元组如 v2 不发射）
   const out = new Set();
   for (const w of String(s ?? '').toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/)) {
     if (!w) continue;
-    if (/^[a-z0-9]+$/.test(w)) { if (w.length >= 2) out.add(w); continue; }
-    for (let i = 0; i + 2 <= w.length; i++) out.add(w.slice(i, i + 2));
+    if (/^[a-z0-9]+$/.test(w)) {
+      if (w.length >= 3 && !/^\d+$/.test(w) && !STOP.has(w)) out.add(w);
+      continue;
+    }
+    for (let i = 0; i + 2 <= w.length; i++) {
+      const bg = w.slice(i, i + 2);
+      if (/[\u4e00-\u9fff]/.test(bg)) out.add(bg);
+    }
   }
   return out;
 }
@@ -193,13 +201,15 @@ function captureGate(store, fm, text, title) {
     for (const tg of draftTags) if (cTags.has(tg)) { narrowed = true; break; }
     if (!narrowed) {
       const cKeys = gateKeywords(`${cfm.get('summary') ?? ctitle ?? ''}\n${rootCauseOf(t)}`);
-      for (const k of draftKeys) if (cKeys.has(k)) { narrowed = true; break; }
+      let shared = 0; // 关键词路径阈值：≥2 个不同键（评审 I-1；tags 路径仍 ≥1）
+      for (const k of draftKeys) if (cKeys.has(k)) shared++;
+      if (shared >= 2) narrowed = true;
     }
     if (narrowed) hits.push({ id, summary: cfm.get('summary') ?? ctitle ?? '' });
   }
   if (!hits.length) return null;
   return [
-    `capture: 预检闸命中 ${hits.length} 条同 project+type 近重候选（收窄谓词：tags 交集或 summary/根因关键词重叠；store 零接触）：`,
+    `capture: 预检闸命中 ${hits.length} 条同 project+type 近重候选（收窄谓词：tags 交集或 summary/根因关键词重叠≥2；store 零接触）：`,
     ...hits.map((h) => `  - ${h.id}  ${h.summary}`),
     '处置：同事件→更新旧记录勿新建；有增量→草稿 frontmatter related: 链接命中 id；确认独立→加 --force-new。',
   ].join('\n') + '\n';
