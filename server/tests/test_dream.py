@@ -27,6 +27,7 @@ from semantic_memory.dream import (
     run_dream,
     spend,
 )
+from semantic_memory.lifecycle import enqueue_raw, flush_distill_queue
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
 _E = [np.eye(4, dtype=np.float32)[i] for i in range(4)]  # 四个正交方向
@@ -424,8 +425,12 @@ def test_notify_mechanical_filters(store, isolated_data_dir):
     for term in ("supersede", "LWW", "updated_at"):
         assert term not in text
     assert text.startswith("DRY-RUN（未执行）")
+    tie_act = next(a for a in report["phases"]["supersede"]["actions"]
+                   if a["tier"] == "H-tie")
+    assert {tie_act["pair"]["a_uid"], tie_act["pair"]["b_uid"]} == {x, y}
     tie_entry = next(e for e in n["important"] if e["kind"] == "tie")
-    assert f"silicon-memory retire {x} --by {y}" in tie_entry["action"]  # 处置命令保留完整 uid
+    assert tie_entry["action"] == (f"silicon-memory retire {tie_act['pair']['a_uid']}"
+                                   f" --by {tie_act['pair']['b_uid']}")  # 处置命令保留完整 uid
     flip_entry = next(e for e in n["important"] if e["kind"] == "flip")
     assert f"silicon-memory retire {x2} --by {y2}" in flip_entry["action"]
     # 解释类附旧/新摘要
@@ -470,5 +475,80 @@ def test_cli_dream_smoke_and_rc2(tmp_path):
     proc2 = subprocess.run([sys.executable, "-m", "semantic_memory", "bogus-cmd"],
                            capture_output=True, text=True, env=env, timeout=120)
     assert proc2.returncode == 2
+
+
+# ---------- Task 6: 蒸馏带自动新取旧（取消提问） ----------
+
+
+class _DictEmbedder:
+    available = True
+    device = "cpu"
+
+    def __init__(self, mapping):
+        self._m = mapping
+
+    def embed_batch(self, texts):
+        return np.stack([self._m[t] for t in texts])
+
+
+class _EntriesDistiller:
+    """可编程假蒸馏器：返回预设 typed 条目（模型只管蒸馏本身，无 supersedes 契约）。"""
+
+    def __init__(self, entries):
+        self._entries = entries
+        self.calls = []
+
+    def is_available(self):
+        return True
+
+    def distill(self, texts, project):
+        self.calls.append((list(texts), project))
+        return self._entries
+
+
+def test_flush_band_auto_supersedes(store):
+    v_old = np.array([1.0, 0.0], dtype=np.float32)
+    v_new = np.array([0.95, 0.31224990], dtype=np.float32)  # cos=0.95 ∈ [pair_sim, NEAR_HI)
+    v_entry = np.array([0.0, 1.0], dtype=np.float32)
+    old = store.store("旧版说法", project="p1", embedding=v_old)
+    enqueue_raw(store, "新版说法原文", "chat", "p1", "s1")
+    emb = _DictEmbedder({"新版说法原文": v_new, "蒸馏后的新条": v_entry})
+    fake = _EntriesDistiller([
+        {"content": "蒸馏后的新条", "kind": "fact", "scope": "project", "tags": []},
+    ])
+
+    report = flush_distill_queue(store, fake, embedder=emb, pair_sim=0.92)
+
+    assert report["typed"] == 1 and report["stored_raw"] == 0
+    new_row = store.conn.execute(
+        "SELECT uid, superseded_by FROM memories WHERE content='蒸馏后的新条'"
+    ).fetchone()
+    old_row = store.conn.execute(
+        "SELECT superseded_by FROM memories WHERE uid=?", (old,)).fetchone()
+    assert new_row["superseded_by"] is None
+    assert old_row["superseded_by"] == new_row["uid"]  # 自动新取旧，模型输出无需 supersedes 字段
+
+
+def test_flush_band_below_pair_sim_untouched(store):
+    v_old = np.array([1.0, 0.0], dtype=np.float32)
+    v_new = np.array([0.8, 0.6], dtype=np.float32)  # cos=0.80 < pair_sim
+    v_entry = np.array([0.0, 1.0], dtype=np.float32)
+    old = store.store("旧版说法", project="p1", embedding=v_old)
+    enqueue_raw(store, "新版说法原文", "chat", "p1", "s1")
+    emb = _DictEmbedder({"新版说法原文": v_new, "蒸馏后的新条": v_entry})
+    fake = _EntriesDistiller([
+        {"content": "蒸馏后的新条", "kind": "fact", "scope": "project", "tags": []},
+    ])
+
+    report = flush_distill_queue(store, fake, embedder=emb, pair_sim=0.92)
+
+    assert report["typed"] == 1 and report["stored_raw"] == 0
+    new_row = store.conn.execute(
+        "SELECT uid, superseded_by FROM memories WHERE content='蒸馏后的新条'"
+    ).fetchone()
+    old_row = store.conn.execute(
+        "SELECT superseded_by FROM memories WHERE uid=?", (old,)).fetchone()
+    assert new_row["uid"] is not None
+    assert old_row["superseded_by"] is None  # <pair_sim 带邻居不动（dream 存量面/TTL 兜）
 
 

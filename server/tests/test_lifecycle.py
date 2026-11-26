@@ -543,10 +543,14 @@ class DictEmbedder:
         return np.stack([self.table[t] for t in texts])
 
 
-def test_contradiction_supersedes_old(store):
-    """验收：旧'偏好 pip' + 新'偏好 uv' → 旧条 superseded_by 非空且召回不见旧条。"""
+def test_contradiction_low_sim_band_not_marked(store):
+    """低相似翻供（cos 0.7 < pair_sim）：不取代不 touch——双双存活。
+
+    dream 改制（2026-11-26）：带邻居不再进提示词问模型、模型输出的
+    supersedes 字段一律剥离——低相似真矛盾对按设计漏网（新陈述反复记忆
+    ＋旧陈述 TTL 衰减兜底，人工可 retire；设计稿风险节）。"""
     v_pip = _unit(1)
-    v_uv = _cos_to(v_pip, 2, 0.7)  # 落在 0.60~0.98 模糊带
+    v_uv = _cos_to(v_pip, 2, 0.7)  # <pair_sim 带邻居：应用侧不动
     old = store.store("偏好 pip 装依赖", "preference", "manual", "p", embedding=v_pip)
     emb = DictEmbedder({"用户改口：偏好 uv": v_uv, "偏好 uv": v_uv})
     enqueue_raw(store, "用户改口：偏好 uv", "chat", "p", None)
@@ -556,13 +560,13 @@ def test_contradiction_supersedes_old(store):
     ])
     report = flush_distill_queue(store, fake, embedder=emb)
     assert report == {"typed": 1, "stored_raw": 0, "left_pending": 0, "dropped": 0}
-    # 近邻带上下文随同一次蒸馏调用进入提示词（无二次 LLM）
-    assert fake.calls == [(["用户改口：偏好 uv"], "p", [(old, "偏好 pip 装依赖")])]
+    # 带邻居不再进提示词（模型只管蒸馏本身）
+    assert fake.calls == [(["用户改口：偏好 uv"], "p", None)]
     rows = store.conn.execute(
         "SELECT uid, superseded_by FROM memories ORDER BY id").fetchall()
-    assert rows[0]["uid"] == old and rows[0]["superseded_by"] == rows[1]["uid"]
-    # 召回路径（get_many）不见被取代的旧条
-    assert [r["uid"] for r in store.get_many([old, rows[1]["uid"]])] == [rows[1]["uid"]]
+    assert len(rows) == 2
+    assert all(r["superseded_by"] is None for r in rows)  # 模型 supersedes 被剥离
+    assert len(store.get_many([r["uid"] for r in rows])) == 2  # 双双存活
 
 
 def test_near_duplicate_touches(store):
@@ -607,8 +611,8 @@ def test_global_entries_dedup_in_null_domain(store):
     assert f2.calls[0][2] is None  # 原文域 proj-b 无近邻——两域互不判重
 
 
-def test_band_neighbor_without_supersedes_adds(store):
-    """模糊带近邻 + 蒸馏未判取代 → ADD 双行，旧条保持可见。"""
+def test_band_neighbor_below_pair_sim_adds(store):
+    """模糊带近邻（cos < pair_sim）→ ADD 双行，旧条保持可见（dream 存量面/TTL 兜）。"""
     v_old = _unit(7)
     v_new = _cos_to(v_old, 8, 0.8)
     old = store.store("旧事实：服务端口 8765", "fact", "manual", "p", embedding=v_old)
@@ -620,7 +624,7 @@ def test_band_neighbor_without_supersedes_adds(store):
     ])
     assert flush_distill_queue(store, fake, embedder=emb) == {"typed": 1, "stored_raw": 0, "left_pending": 0, "dropped": 0}
     assert store.stats()["total"] == 2  # ADD：不取代也不 touch
-    assert fake.calls[0][2] == [(old, "旧事实：服务端口 8765")]
+    assert fake.calls[0][2] is None  # 带邻居不进提示词（模型只管蒸馏）
     assert store.get_many([old])[0]["uid"] == old  # 旧条未被取代
 
 

@@ -281,7 +281,8 @@ def run_dream(store, cfg, distiller, embedder, apply: bool = False) -> dict:
         if not apply:
             phases["distill"] = {"skipped": "report_only"}
         else:
-            phases["distill"] = flush_distill_queue(store, distiller, embedder=embedder)
+            phases["distill"] = flush_distill_queue(store, distiller, embedder=embedder,
+                                                    pair_sim=cfg.pair_sim)
     except Exception as exc:
         phases["distill"] = {"error": str(exc)}
         report["errors"].append({"phase": "distill", "error": str(exc)})

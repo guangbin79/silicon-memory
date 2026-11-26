@@ -77,10 +77,10 @@ def ingest_with_dedup(
 # 防两路并发读同一批 pending 行造成重复落库。
 _flush_lock = threading.Lock()
 
-# 近邻介入带（task6）：≥NEAR_HI 近重复（同 MEMORY_DEDUP_SIM）→ touch；
-# NEAR_LO~NEAR_HI 模糊带 → 随蒸馏提示词问"是否取代"；<NEAR_LO 无关。
+# 近邻介入带（dream 改制 2026-11-26）：≥NEAR_HI 近重复（同 MEMORY_DEDUP_SIM）
+# → touch 既有不插入；[pair_sim, NEAR_HI) 带邻居 → 应用侧自动新取旧（模型不裁决，
+# 新条直接挂指针给带邻居）；<pair_sim 无关不动（dream 存量面/TTL 兜底）。
 NEAR_HI: Final = 0.98
-NEAR_LO: Final = 0.60
 
 
 def enqueue_raw(
@@ -143,31 +143,30 @@ def _band_neighbors(
     embedder: Embedder | None,
     texts: list[str],
     project: str | None,
-) -> list[tuple[str, str]]:
-    """蒸馏组级近邻上下文：各原文同域 NEAR_LO~NEAR_HI 模糊带近邻（去重）。
+    pair_sim: float,
+) -> list[list[str]]:
+    """各原文的同域带邻居 uid 列表（cos∈[pair_sim, NEAR_HI)，每条至多 3 个）。
 
-    该带既非重复（≥NEAR_HI 会 touch）也非无关（<NEAR_LO），是"可能被取代"
-    的候选——随提示词一次性带入，由同一次蒸馏调用裁决 supersedes。
+    dream 设计（2026-11-26）：带邻居不再进提示词问模型——cos≥pair_sim 的
+    带邻居由 flush 应用侧自动新取旧（new=本批新条，old=带邻居）；<pair_sim
+    的带邻居不动。返回与 texts 等长按序对齐（行 id → 带邻居的映射由调用方落）。
     """
     if embedder is None:
-        return []
+        return [[] for _ in texts]
     vecs = embedder.embed_batch(texts)
     if vecs is None:
-        return []
+        return [[] for _ in texts]
     uids, mat = store.all_vectors(
         project=project, scope="global" if project is None else "all"
     )
     if not len(uids):
-        return []
-    found: list[str] = []
+        return [[] for _ in texts]
+    out: list[list[str]] = []
     for row in vecs @ mat.T:
-        for i in np.argsort(row)[::-1][:3]:
-            cos = float(row[i])
-            if cos < NEAR_LO:
-                break
-            if cos < NEAR_HI and uids[i] not in found:
-                found.append(uids[i])
-    return [(r["uid"], r["content"]) for r in store.get_many(found)]
+        band = [uids[i] for i in np.argsort(row)[::-1][:3]
+                if pair_sim <= float(row[i]) < NEAR_HI]
+        out.append(band)
+    return out
 
 
 def flush_distill_queue(
@@ -175,6 +174,7 @@ def flush_distill_queue(
     distiller: Distiller | None,
     commit_batch: int = 5,
     embedder: Embedder | None = None,
+    pair_sim: float = 0.92,
 ) -> dict:
     """蒸馏队列落库：取全部 pending → Distiller → typed 条目；失败原文直存。
 
@@ -184,9 +184,10 @@ def flush_distill_queue(
     每批原子：memories 插入/向量、touch、supersede 标记与队列标记同事务，
     中途崩溃该批回滚留待下次 flush。
 
-    typed 条目三级行为（task6）：①精确哈希（全局）或同域向量近邻
-    cos≥NEAR_HI → touch 既有不插入；②模糊带近邻随提示词一次性带入，
-    蒸馏输出 supersedes → 新条先插入，旧条 superseded_by=新 uid；③其余 ADD。
+    typed 条目三级行为（dream 改制 2026-11-26）：①精确哈希（全局）或同域
+    向量近邻 cos≥NEAR_HI → touch 既有不插入；②[pair_sim, NEAR_HI) 带邻居
+    由应用侧自动新取旧（new=本批新条，old=带邻居；模型不裁决、提示词不带
+    近邻，superseded_by IS NULL 守卫保留）；③其余 ADD。
     scope=global → project 置 NULL（全局域），与 project 域互不判重；
     新条向量随插写入（embedder 未配则缺者经 backfill 追平）。蒸馏按
     project 分组（提示词需要单一 project 上下文）；Distiller 未配置 →
@@ -230,6 +231,8 @@ def flush_distill_queue(
             entries_by_project: dict = {}
             failed_projects: set = set()
             dropped_projects: set = set()  # SYSTEM_PROMPT 契约：[]＝该组全部不值得记
+            # 带邻居自动新取旧（dream）：行 id → 该行原文的带邻居 uid 列表
+            band_by_row: dict[int, list[str]] = {}
             # 噪声闸（noise.py）：蒸馏输入按行级滤洗；滤洗后为空的行（纯状态
             # 回执/全噪声线行）无知识可馏——空槽送蒸馏只会诱出垃圾释义并打破
             # 按序绑定，故整行随行循环丢弃（dropped 计数可观测）
@@ -237,15 +240,17 @@ def flush_distill_queue(
             noise_rows = {rid for rid, s in stripped.items() if not s}
             if distiller is not None:
                 for project in {r["project"] for r in rows}:
-                    texts = [stripped[r["id"]] for r in rows
-                             if r["project"] == project
-                             and r["id"] not in noise_rows]
+                    text_rows = [(r, stripped[r["id"]]) for r in rows
+                                 if r["project"] == project
+                                 and r["id"] not in noise_rows]
+                    texts = [t for _, t in text_rows]
                     if not texts:
                         continue  # 整组全噪声：无蒸馏必要（空文本组会误触熔断）
-                    neighbors = _band_neighbors(store, embedder, texts, project)
+                    bands = _band_neighbors(store, embedder, texts, project, pair_sim)
+                    for (r, _), band in zip(text_rows, bands):
+                        band_by_row[r["id"]] = band
                     try:
-                        result = distiller.distill(texts, project or "",
-                                                   neighbors or None)
+                        result = distiller.distill(texts, project or "")
                         if result is None:
                             # None＝硬件类失败（加载失败/响应异常；解析抖动走
                             # DistillParseError 不经此路）→ 已配置即熔断；未配置
@@ -384,7 +389,10 @@ def flush_distill_queue(
                     ))
                     if vec is not None:
                         vecs.append((uid, vec[0]))
-                    for old in entry.get("supersedes") or []:
+                    # 带邻居自动新取旧（dream 2026-11-26）：模型不裁决——该行原文
+                    # 的 [pair_sim, NEAR_HI) 带邻居直接挂指针给本批新条
+                    # （superseded_by IS NULL 守卫在 SQL 保留）
+                    for old in band_by_row.get(r["id"], []):
                         supersedes.append((uid, old))
                 batch.append(("done", r["id"]))
                 if len(batch) >= commit_batch:

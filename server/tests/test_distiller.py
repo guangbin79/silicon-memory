@@ -14,8 +14,6 @@ import pytest
 
 from semantic_memory import gpu_breaker
 from semantic_memory.distiller import (
-    MAX_NEIGHBOR_CHARS,
-    MAX_NEIGHBORS,
     SYSTEM_PROMPT,
     DistillParseError,
     Distiller,
@@ -312,24 +310,9 @@ def test_real_model_smoke():
     assert isinstance(entry["tags"], list)
 
 
-def test_format_prompt_neighbors_section():
-    """r5 接口扩展：neighbors 上下文进 user 段，uid 随内容列出供 supersedes 引用。"""
-    prompt = format_prompt(["新原文"], "p", neighbors=[("abc123", "旧内容一")])
-    assert "<<<MEMORIES>>>" in prompt
-    assert "[abc123] 旧内容一" in prompt
-    assert '"supersedes"' in prompt
-    assert prompt.endswith("<|im_start|>assistant\n")
-    assert "<think>" not in prompt
-
-
-def test_format_prompt_without_neighbors_identical():
-    """无 neighbors 时提示词与基础形态逐字节一致（基础契约回归锚）。"""
-    assert format_prompt(["a"], "p", neighbors=None) == format_prompt(["a"], "p")
-
-
-def test_supersedes_whitelist_unconditional(monkeypatch, gguf):
-    """supersedes 白名单无条件生效：无 neighbors 时 allowed 为空集全部剥离；
-    有 neighbors 时仅保留白名单内合法 uid（轮3 终闸 MAJOR 修复后契约）。"""
+def test_model_supersedes_stripped(monkeypatch, gguf):
+    """零 LLM 裁决（dream 设计 2026-11-26）：模型输出的 supersedes 字段一律
+    剥离——取代判定收归 flush 应用侧（带邻居 cos∈[pair_sim,NEAR_HI) 机械新取旧）。"""
     raw = (
         '[{"content": "偏好 uv", "kind": "preference", "scope": "project",'
         ' "rationale": "r", "tags": [], "supersedes": ["nb1", 5, ""]},'
@@ -337,48 +320,16 @@ def test_supersedes_whitelist_unconditional(monkeypatch, gguf):
     )
     mock = MockDistillModel(outputs=[raw])
     d = make_distiller(monkeypatch, gguf, mock)
-    out = d.distill(["原文"], "p")  # 无 neighbors：模型 uid 无凭据，全剥
+    out = d.distill(["原文"], "p")
     assert "supersedes" not in out[0]
     assert "supersedes" not in out[1]
-    d2 = make_distiller(monkeypatch, gguf, MockDistillModel(outputs=[raw]))
-    out2 = d2.distill(["原文"], "p", neighbors=[("nb1", "旧内容")])  # 白名单内合法 uid 保留
-    assert out2[0]["supersedes"] == ["nb1"]
-    assert "supersedes" not in out2[1]
-
-
-# ---------- MEMORIES 段预算（gt-e696：2026-10-23 "4356≥4096" 全局熔断事故收口） ----------
-
-
-def _memories_section(prompt: str) -> str:
-    """提取 <<<MEMORIES>>> 段正文（预算断言共用）。"""
-    return prompt.split("<<<MEMORIES>>>\n", 1)[1].split("\n<<<END>>>", 1)[0]
-
-
-def test_memories_budget_caps_count_and_chars():
-    """近邻段双预算：条数 ≤MAX_NEIGHBORS、段字符 ≤MAX_NEIGHBOR_CHARS（含前缀与换行）。"""
-    big = [(f"uid{i:02d}", "邻" * 400) for i in range(50)]
-    section = _memories_section(format_prompt(["新原文"], "p", neighbors=big))
-    assert len(section.splitlines()) <= MAX_NEIGHBORS  # 条数封顶
-    assert len(section) <= MAX_NEIGHBOR_CHARS  # 段长受硬预算约束
-    tiny = [(f"u{i}", "x" * 20) for i in range(10)]  # 小条目让条数上限真实生效
-    tiny_section = _memories_section(format_prompt(["t"], "p", neighbors=tiny))
-    assert len(tiny_section.splitlines()) == MAX_NEIGHBORS
-
-
-def test_memories_oversized_first_neighbor_omits_section():
-    """首条近邻放不下预算：整段省略（MEMORIES 与 supersedes 指令块一起省，退化无近邻形态）。"""
-    prompt = format_prompt(["新原文"], "p", neighbors=[("abc123", "旧" * 700)])
-    assert "<<<MEMORIES>>>" not in prompt
-    assert '"supersedes"' not in prompt
-    assert prompt == format_prompt(["新原文"], "p")  # 与无近邻形态逐字节一致
 
 
 def test_prompt_total_length_bound():
-    """全 prompt 字符上界：批原文顶满截断＋近邻段超供 <4000（事故预算算术回归锚；
-    2026-10-26 system 增判据门＋负例 +~350 字符，2000+600+~600≈3200 < 4096 tok）。"""
+    """全 prompt 字符上界：批原文顶满截断 <4000（事故预算算术回归锚；
+    近邻段已随 dream 改制移除，上界更宽——2000+~600 < 4096 tok）。"""
     texts = ["原" * 1500, "文" * 1500]  # join 3007 字符 → 截 MAX_INPUT_CHARS
-    neighbors = [(f"uid{i:02d}", "邻" * 400) for i in range(50)]
-    prompt = format_prompt(texts, "github.com/a/b", neighbors=neighbors)
+    prompt = format_prompt(texts, "github.com/a/b")
     assert len(prompt) < 4000
 
 

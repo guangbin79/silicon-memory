@@ -3,8 +3,9 @@
 Qwen3 官方 chat 模板的非思考形态：<|im_start|> system/user/assistant，
 助手侧无 <think> 引导；要求模型只输出 JSON 数组
 [{content, kind∈fact|decision|preference|artifact, scope∈project|global,
-rationale, tags}]；带 neighbors 时条目可另含 supersedes: [uid]——取代裁决
-与内容提取共用同一次调用。解析容错（截取首 [ 至末 ]，兼容 markdown 围栏与
+rationale, tags}]——模型只管蒸馏本身（dream 设计 2026-11-26：带邻居取代
+裁决收归应用侧机械判定，提示词与输出契约不再含 supersedes；模型若自作
+主张输出该字段一律剥离）。解析容错（截取首 [ 至末 ]，兼容 markdown 围栏与
 前后闲话），解析失败返回 None（fail-open，调用方原文直存）；
 decision/preference 缺 rationale 降级 kind=fact 并 WARN。
 
@@ -35,10 +36,9 @@ MAX_NEW_TOKENS: Final = 1024  # 一批 ≤20 条的 JSON 数组输出预算
 MAX_BATCH_TEXTS: Final = 5  # 5 条 × ~93 tok ≈ 470 ≪ MAX_NEW_TOKENS=1024；2026-11-16 大组 length 截断死循环事故
 # gt-e696（2026-10-23 "4356≥4096" 全局熔断）：MEMORIES 近邻段曾无界拼接在批原文截断点
 # 之后，积压批数十条近邻（每条 ≤2000 字符全文）撑爆 n_ctx。预算算术：
-# 2000（批原文）＋600（近邻）＋~450（模板/指令/system，含 2026-10-26 判据门＋负例）≈ 3050 tok < 4096。
+# 2000（批原文）＋~450（模板/指令/system，含 2026-10-26 判据门＋负例）≈ 2450 tok < 4096。
+# （近邻段已随 2026-11-26 dream 改制移除——预算算术保留为输入上界回归锚。）
 MAX_INPUT_CHARS: Final = 2000  # 批原文截断（与 n_ctx 4096 配套，中文 ~1 token/字）
-MAX_NEIGHBORS: Final = 6       # MEMORIES 段条数硬预算
-MAX_NEIGHBOR_CHARS: Final = 600  # MEMORIES 段总字符硬预算（含 "[uid] " 前缀与换行）
 IM_END: Final = "<|im_end|>"
 VALID_KINDS: Final = ("fact", "decision", "preference", "artifact")
 VALID_SCOPES: Final = ("project", "global")
@@ -62,36 +62,15 @@ SYSTEM_PROMPT: Final = (
 def format_prompt(
     texts: list[str],
     project: str,
-    neighbors: list[tuple[str, str]] | None = None,
 ) -> str:
     """Qwen3 非思考 chat 模板；助手侧无 <think> 引导。
 
-    neighbors 为 (uid, content) 近邻对：非空时附 <<<MEMORIES>>> 段并列出
-    取代条目的 supersedes 输出契约——取代裁决与内容提取共用同一次调用。
-    近邻段受 MAX_NEIGHBORS/MAX_NEIGHBOR_CHARS 硬预算（贪心装填，逐条计费）；
-    首条放不下预算时整段省略（含 supersedes 指令块），退化无近邻形态。
+    模型只管蒸馏本身（dream 设计 2026-11-26）：不再附带带邻居上下文与
+    supersedes 输出契约——取代判定收归 flush 应用侧（cos∈[pair_sim,NEAR_HI)
+    自动新取旧，见 lifecycle._band_neighbors）。
     """
     joined = "\n---\n".join(texts)[:MAX_INPUT_CHARS]
     user = f"Project: {project}\n<<<TEXT>>>\n{joined}\n<<<END>>>"
-    if neighbors:
-        lines: list[str] = []
-        used = 0
-        for uid, content in neighbors[:MAX_NEIGHBORS]:
-            line = f"[{uid}] {content}"
-            cost = len(line) + (1 if lines else 0)  # 计入行间换行
-            if used + cost > MAX_NEIGHBOR_CHARS:
-                break
-            lines.append(line)
-            used += cost
-        if lines:  # 首条即超预算 → 整段省略，prompt 与无近邻形态逐字节一致
-            listed = "\n".join(lines)
-            user += (
-                "\n<<<MEMORIES>>>\n" + listed + "\n<<<END>>>"
-                '\nIf a new entry contradicts one of the memories above or makes it'
-                ' outdated, add a "supersedes" key to that entry: the array of'
-                ' replaced memory uids, e.g. "supersedes": ["<uid>"]. Omit'
-                ' "supersedes" when nothing is replaced.'
-            )
     return (
         "<|im_start|>system\n"
         + SYSTEM_PROMPT
@@ -123,7 +102,6 @@ def _normalize(entry: Any) -> dict | None:
     if scope not in VALID_SCOPES:
         scope = "project"
     tags = entry.get("tags")
-    sup = entry.get("supersedes")
     out = {
         "content": content,
         "kind": kind,
@@ -131,12 +109,8 @@ def _normalize(entry: Any) -> dict | None:
         "rationale": rationale if isinstance(rationale, str) else "",
         "tags": [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else [],
     }
-    supersedes = (
-        [s for s in sup if isinstance(s, str) and s.strip()]
-        if isinstance(sup, list) else []
-    )
-    if supersedes:  # 仅在模型确实给出时才带键：基础输出契约保持不变
-        out["supersedes"] = supersedes
+    # supersedes 契约已移除（dream 设计 2026-11-26）：模型只管蒸馏本身，
+    # 自作主张输出的 supersedes 一律剥离——取代判定在 flush 应用侧（机械）。
     return out
 
 
@@ -256,13 +230,12 @@ class Distiller:
 
     def _generate(
         self, model: Any, texts: list[str], project: str,
-        neighbors: list[tuple[str, str]] | None = None,
     ) -> str:
         try:
             # INFER_LOCK：跨模型 GPU 推理全局互斥（同 gpu_breaker.INFER_LOCK 注释）
             with gpu_breaker.INFER_LOCK:
                 resp = model.create_completion(
-                    format_prompt(texts, project, neighbors),
+                    format_prompt(texts, project),
                     max_tokens=MAX_NEW_TOKENS,
                     temperature=0.1,
                     stop=[IM_END],
@@ -278,7 +251,6 @@ class Distiller:
 
     def distill(
         self, texts: list[str], project: str,
-        neighbors: list[tuple[str, str]] | None = None,
     ) -> list[dict] | None:
         """一批原文 → typed 条目数组；大组按 MAX_BATCH_TEXTS 分块防输出截断。
 
@@ -289,7 +261,7 @@ class Distiller:
         merged: list[dict] = []
         for i in range(0, len(texts), MAX_BATCH_TEXTS):
             entries = self._distill_group(
-                texts[i : i + MAX_BATCH_TEXTS], project, neighbors
+                texts[i : i + MAX_BATCH_TEXTS], project
             )
             if entries is None:
                 return None
@@ -298,16 +270,13 @@ class Distiller:
 
     def _distill_group(
         self, texts: list[str], project: str,
-        neighbors: list[tuple[str, str]] | None = None,
     ) -> list[dict] | None:
         """单块蒸馏（≤MAX_BATCH_TEXTS 条）：输出预算内的原子调用单元。
 
         硬件类失败（加载失败等）→ None（调用方据 configured 熔断）；
         解析抖动（输出无 JSON 数组）→ DistillParseError（调用方 fail-closed
         留 pending，不熔断——2026-10-22 实证一次抖动曾 trip 全局 16h）。
-
-        neighbors 为同域近邻 (uid, content) 上下文：非空时提示词附带
-        "是否取代"问答，取代关系经条目 supersedes 字段一并返回。"""
+        """
         if not self.available or not texts:
             return None
         for _attempt in range(2):  # 第二轮仅用于 GPU 推理失败后的 CPU 重建重试
@@ -317,18 +286,9 @@ class Distiller:
                 log.warning("蒸馏模型加载失败（%s: %s）", type(exc).__name__, exc)
                 return None
             try:
-                entries = _parse(self._generate(model, texts, project, neighbors))
+                entries = _parse(self._generate(model, texts, project))
                 if entries is None:
                     raise DistillParseError("输出不含可解析的 JSON 数组")
-                if entries:  # supersedes 白名单无条件生效：无近邻时 allowed 为空集全部剥离（防模型对任意 uid 发 supersede）
-                    allowed = {uid for uid, _ in (neighbors or [])}
-                    for e in entries:
-                        if "supersedes" in e:
-                            kept = [u for u in e["supersedes"] if u in allowed]
-                            if kept:
-                                e["supersedes"] = kept
-                            else:
-                                del e["supersedes"]
                 return entries
             except _GpuInferenceError as exc:
                 # CUDA 熔断：损坏模型禁入 GC（free 即 abort，2026-10-21 实证

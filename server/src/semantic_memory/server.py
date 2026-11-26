@@ -510,7 +510,8 @@ def _spawn_flush() -> None:
     # 此处仅兜底线程异常不让其无声死；线程死于进程死（daemon）。
     def _run() -> None:
         try:
-            report = flush_distill_queue(store, distiller, embedder=embedder)
+            report = flush_distill_queue(store, distiller, embedder=embedder,
+                                         pair_sim=cfg.pair_sim)
             log.info("distill flush: %s", report)
             # task12：flush 完成后的云整合触发判定——沿用本 daemon 线程（禁入同步请求路径）
             log.info("cloud consolidate: %s", consolidator.maybe_run(
@@ -1223,7 +1224,8 @@ def main() -> None:
         _cmd_consolidate()
         return
     if cmd == "distill":  # 触发器三路：手动 flush（同步跑完打印报告）
-        print(json.dumps(flush_distill_queue(store, distiller, embedder=embedder), ensure_ascii=False))
+        print(json.dumps(flush_distill_queue(store, distiller, embedder=embedder,
+                                             pair_sim=cfg.pair_sim), ensure_ascii=False))
         return
     if cmd == "sweep":  # 一致性巡检：悬空路径引用候选报告，只报告不删除（悬空≠无效）
         print(json.dumps(run_sweep(store), ensure_ascii=False))
