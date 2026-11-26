@@ -5,6 +5,8 @@
 """
 import inspect
 import json
+import os
+import time
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -16,8 +18,10 @@ from semantic_memory.db import MemoryStore
 from semantic_memory.dream import (
     collect_pairs,
     day_state,
+    dream_log_dir,
     dream_state_path,
     route,
+    run_dream,
     spend,
 )
 
@@ -257,5 +261,173 @@ def test_route_tie_keeps_both_for_human():
 def test_route_has_no_llm_surface():
     sig = inspect.signature(route)
     assert list(sig.parameters) == ["pairs", "cfg"]  # 无模型注入面＝零 LLM 的证明
+
+
+# ---------- Task 4: 执行＋报告＋相位编排 ----------
+
+
+class _FakeEmbedder:
+    device = "cpu"
+
+    def __init__(self, available=True):
+        self.available = available
+
+
+def _rcfg(pair_sim=0.92, max_per_night=200):
+    # ttl_* = 0：purge 相位照跑但各清理步骤关闭（隔离 supersede 断言）
+    return SimpleNamespace(pair_sim=pair_sim, max_per_night=max_per_night,
+                           ttl_artifact_days=0, ttl_injection_days=0, ttl_stale_days=0)
+
+
+def test_run_dream_report_only_zero_writes(store, isolated_data_dir, monkeypatch):
+    a = store.store("旧说法甲", embedding=_E[0])
+    b = store.store("新说法甲", embedding=_E[0])
+    _touch(store, a, 100)
+    _touch(store, b, 200)
+    calls = []
+    monkeypatch.setattr(store, "dream_apply",
+                        lambda loser, winner: calls.append((loser, winner)) or True)
+
+    report = run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=False)
+
+    assert calls == []  # dream_apply 零调用（写零落）
+    assert report["phases"]["distill"] == {"skipped": "report_only"}
+    assert report["phases"]["purge"] == {"skipped": "report_only"}
+    assert report["phases"]["noise"]["dry_run"] is True
+    sup = report["phases"]["supersede"]
+    assert sup["applied"] == 0 and len(sup["actions"]) == 1
+    assert report["status"] == "ok"
+    assert report["notify"]["text"].startswith("DRY-RUN（未执行）")
+
+
+def test_run_dream_apply_marks_and_logs(store, isolated_data_dir):
+    a = store.store("旧说法甲", embedding=_E[0])
+    b = store.store("新说法甲", embedding=_E[0])
+    _touch(store, a, 100)
+    _touch(store, b, 200)
+    x = store.store("平局X", embedding=_E[1])
+    y = store.store("平局Y", embedding=_E[1])
+    _touch(store, x, 150)
+    _touch(store, y, 150)
+
+    report = run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=True)
+
+    sup = report["phases"]["supersede"]
+    assert sup["applied"] == 1
+    assert _row(store, a)["superseded_by"] == b  # M 对落指针
+    assert _row(store, x)["superseded_by"] is None
+    assert _row(store, y)["superseded_by"] is None  # H-tie 不执行
+    log_path = dream_log_dir() / f"dream-{datetime.now():%Y%m%d}.jsonl"
+    lines = [json.loads(l) for l in log_path.read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 2  # 日志含全量对
+    m_line = next(l for l in lines if l["outcome"] == "M")
+    assert (m_line["loser"], m_line["winner"]) == (a, b)
+    assert m_line["date"] == TODAY
+    tie_line = next(l for l in lines if l["outcome"] == "H-tie")
+    assert tie_line["loser"] is None and tie_line["winner"] is None
+    assert report["day_state"]["pairs"] == 2
+    assert not report["notify"]["text"].startswith("DRY-RUN")
+
+
+def test_run_dream_no_embedder_skips_supersede_only(store, isolated_data_dir):
+    a = store.store("旧说法甲", embedding=_E[0])
+    b = store.store("新说法甲", embedding=_E[0])
+    _touch(store, a, 100)
+    _touch(store, b, 200)
+
+    report = run_dream(store, _rcfg(), None, _FakeEmbedder(False), apply=True)
+
+    assert report["phases"]["supersede"] == {"skipped": "unavailable"}
+    assert _row(store, a)["superseded_by"] is None
+    assert "total_removed" in report["phases"]["purge"]  # purge 照跑
+    assert "scanned" in report["phases"]["noise"]  # noise 照跑
+    assert "typed" in report["phases"]["distill"]  # distill 照跑
+
+
+def test_run_dream_pairing_error_degrades(store, isolated_data_dir):
+    class BrokenStore:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def all_vectors(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    report = run_dream(BrokenStore(store), _rcfg(), None, _FakeEmbedder(True), apply=False)
+
+    assert report["errors"]  # errors 非空
+    assert "error" in report["phases"]["supersede"]
+    assert report["status"] == "degraded"
+    assert "scanned" in report["phases"]["noise"]  # 不抛穿 run_dream，后续相位照跑
+
+
+def test_run_dream_report_only_does_not_block_later_apply(store, isolated_data_dir):
+    a = store.store("旧说法甲", embedding=_E[0])
+    b = store.store("新说法甲", embedding=_E[0])
+    _touch(store, a, 100)
+    _touch(store, b, 200)
+
+    run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=False)  # 前夜 report-only 已报
+    log = max(dream_log_dir().glob("dream-*.jsonl"))
+    old = time.time() - 3600
+    os.utime(log, (old, old))  # 拨回前夜
+
+    run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=True)
+    assert _row(store, a)["superseded_by"] == b  # M 对不被前夜 report-only 报告挡住
+
+
+def test_notify_mechanical_filters(store, isolated_data_dir):
+    log_dir = isolated_data_dir / "logs"
+    log_dir.mkdir(parents=True)
+    log = log_dir / f"dream-{datetime.now():%Y%m%d}.jsonl"
+    log.write_text("", encoding="utf-8")
+    old = time.time() - 3600
+    os.utime(log, (old, old))  # 前夜跑过 → last_run_ts 存在 → 复活池可达
+    # 解释类取代对（preference）
+    p_old = store.store("偏好旧说法", kind="preference", embedding=_E[0])
+    p_new = store.store("偏好新说法", kind="preference", embedding=_E[0])
+    _touch(store, p_old, 100)
+    _touch(store, p_new, 200)
+    # fact 取代对（只计数）
+    f_old = store.store("事实旧说法", embedding=_E[1])
+    f_new = store.store("事实新说法", embedding=_E[1])
+    _touch(store, f_old, 100)
+    _touch(store, f_new, 200)
+    # 平局对
+    x = store.store("平局X", embedding=_E[2])
+    y = store.store("平局Y", embedding=_E[2])
+    _touch(store, x, 150)
+    _touch(store, y, 150)
+    # 翻回对：被压下的旧版再被提起 → 翻身（updated_at 需晚于真实时间的前夜锚）
+    y2 = store.store("现行版", embedding=_E[3])
+    x2 = store.store("旧版翻回", embedding=_E[3])
+    _set_pointer(store, x2, y2)
+    _touch(store, y2, 100)
+    _touch(store, x2, time.time() - 60)  # 复活候选（updated_at > last_run_ts）
+
+    report = run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=False)
+    n = report["notify"]
+    c = n["counts"]
+    assert (c["pairs"], c["m"], c["h_tie"], c["flips"], c["applied"]) == (4, 3, 1, 1, 0)
+    kinds = [e["kind"] for e in n["important"]]
+    assert kinds.count("tie") == 1
+    assert kinds.count("flip") == 1
+    assert kinds.count("explained") == 1  # fact 对仅计数不入 important
+    assert kinds.count("anomaly") == 2  # report-only：distill/purge skipped 全列
+    assert "budget" not in kinds
+    text = n["text"]
+    for term in ("supersede", "LWW", "updated_at"):
+        assert term not in text
+    assert text.startswith("DRY-RUN（未执行）")
+    tie_entry = next(e for e in n["important"] if e["kind"] == "tie")
+    assert f"silicon-memory retire {x} --by {y}" in tie_entry["action"]  # 处置命令保留完整 uid
+    flip_entry = next(e for e in n["important"] if e["kind"] == "flip")
+    assert f"silicon-memory retire {x2} --by {y2}" in flip_entry["action"]
+    # 解释类附旧/新摘要
+    explained_entry = next(e for e in n["important"] if e["kind"] == "explained")
+    assert "偏好旧说法" in explained_entry["loser_brief"]
+    assert "偏好新说法" in explained_entry["winner_brief"]
 
 
