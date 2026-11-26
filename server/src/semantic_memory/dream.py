@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -31,18 +32,25 @@ def dream_log_dir() -> Path:
 
 
 def day_state(path: Path) -> dict:
-    """{"date","pairs":N} 自然日计数；文件缺失/异日/损坏 → 今日零计数。"""
+    """{"date","pairs","last_apply_ts"}：自然日计数＋复活锚（apply 运行时刻，跨日持久）。"""
+    fresh = {"date": _today(), "pairs": 0, "last_apply_ts": 0.0}
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"date": _today(), "pairs": 0}
-    if not isinstance(data, dict) or data.get("date") != _today():
-        return {"date": _today(), "pairs": 0}
+        return fresh
+    if not isinstance(data, dict):
+        return fresh
     try:
-        pairs = int(data.get("pairs", 0) or 0)
+        pairs = max(0, int(data.get("pairs", 0) or 0))
     except (TypeError, ValueError):
         pairs = 0
-    return {"date": data["date"], "pairs": max(0, pairs)}
+    try:
+        anchor = float(data.get("last_apply_ts") or 0)
+    except (TypeError, ValueError):
+        anchor = 0.0
+    same_day = data.get("date") == _today()
+    return {"date": _today(), "pairs": pairs if same_day else 0,
+            "last_apply_ts": anchor}
 
 
 def spend(path: Path, n: int) -> bool:
@@ -55,6 +63,17 @@ def spend(path: Path, n: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def _mark_last_apply(path: Path) -> None:
+    """apply 运行落复活锚（date/pairs 原样保留）。失败非致命：次夜复活面偏宽，幂等收敛。"""
+    st = day_state(path)
+    st["last_apply_ts"] = time.time()
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _reported_pairs() -> set[frozenset[str]]:
@@ -90,6 +109,24 @@ def _last_run_ts() -> float | None:
         return None
     try:
         return logs[-1].stat().st_mtime
+    except OSError:
+        return None
+
+
+def _revival_anchor() -> float | None:
+    """复活锚＝最近一次 apply 运行时刻（state 持久）＞最老日志 mtime（无 apply 史
+    的兜底）。日间 report-only 只追加当日日志与预算，不写 last_apply_ts、不动
+    昨日日志 mtime——白天 touch 的复活对必须留给当夜 apply 收敛（评审 I-2：
+    用最新日志 mtime 当锚会被日间报告推过 touch 时刻，确定性丢失翻回窗口）。
+    """
+    st = day_state(dream_state_path())
+    if st.get("last_apply_ts"):
+        return float(st["last_apply_ts"])
+    logs = sorted(dream_log_dir().glob("dream-*.jsonl"))
+    if not logs:
+        return None
+    try:
+        return logs[0].stat().st_mtime  # 最老日志＝dream 开始观察的时刻
     except OSError:
         return None
 
@@ -298,7 +335,7 @@ def run_dream(store, cfg, distiller, embedder, apply: bool = False) -> dict:
         if not getattr(embedder, "available", False):
             phases["supersede"] = {"skipped": "unavailable"}
         else:
-            collected = collect_pairs(store, cfg, _last_run_ts())
+            collected = collect_pairs(store, cfg, _revival_anchor())
             actions = route(collected["pairs"], cfg)
             uids = [u for act in actions
                     for u in (act["pair"]["a_uid"], act["pair"]["b_uid"])]
@@ -362,6 +399,9 @@ def run_dream(store, cfg, distiller, embedder, apply: bool = False) -> dict:
         report["errors"].append({"phase": "noise", "error": str(exc)})
 
     report["day_state"] = day_state(dream_state_path())
+    if apply:
+        _mark_last_apply(dream_state_path())  # apply 落复活锚（报告随后反映）
+        report["day_state"] = day_state(dream_state_path())
     try:
         write_dream_log(report)
     except OSError as exc:
@@ -423,13 +463,13 @@ def _build_notify(report: dict, apply: bool) -> dict:
         important.append({
             "kind": "tie", "a_uid": p["a_uid"], "b_uid": p["b_uid"],
             "a_brief": a.get("a_brief"), "b_brief": a.get("b_brief"),
-            "action": f"silicon-memory retire {p['a_uid']} --by {p['b_uid']}"})
+            "action": f"silicon-memory retire --ref hot:{p['a_uid']} --by hot:{p['b_uid']}"})
     for a in flip_acts:
         p = a["pair"]
         important.append({
             "kind": "flip", "a_uid": p["a_uid"], "b_uid": p["b_uid"],
             "a_brief": a.get("a_brief"), "b_brief": a.get("b_brief"),
-            "action": f"silicon-memory retire {p['b_uid']} --by {p['a_uid']}"})
+            "action": f"silicon-memory retire --ref hot:{p['b_uid']} --by hot:{p['a_uid']}"})
     for a in explained:
         important.append({
             "kind": "explained", "loser_uid": a["loser"], "winner_uid": a["winner"],
@@ -455,7 +495,8 @@ def _build_notify(report: dict, apply: bool) -> dict:
         for a in tie_acts:
             p = a["pair"]
             lines.append(f"  - 「{a.get('a_brief', '')}」⇄「{a.get('b_brief', '')}」"
-                         f"→ 定夺：silicon-memory retire {p['a_uid']} --by {p['b_uid']}")
+                         f"→ 定夺：silicon-memory retire --ref hot:{p['a_uid']}"
+                         f" --by hot:{p['b_uid']}")
     if flip_acts:
         lines.append(f"↺ {len(flip_acts)} 条翻回来了（最近又被反复说起，按时间它最新，"
                      f"已恢复为现行版；不同意就反向 retire）：")

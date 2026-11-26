@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -229,11 +229,16 @@ def test_collect_pairs_revival_candidates_enter_pool(store, isolated_data_dir):
 
 def test_day_state_natural_day_rollover(tmp_path):
     path = tmp_path / "dream-state.json"
-    assert day_state(path) == {"date": TODAY, "pairs": 0}
+    assert day_state(path) == {"date": TODAY, "pairs": 0, "last_apply_ts": 0.0}
     assert spend(path, 2) is True
     assert day_state(path)["pairs"] == 2
     path.write_text(json.dumps({"date": "2000-01-01", "pairs": 5}), encoding="utf-8")
     assert day_state(path)["pairs"] == 0  # 自然日翻账
+    # 复活锚（last_apply_ts）跨日持久，不随日翻账清零
+    path.write_text(json.dumps({"date": "2000-01-01", "pairs": 5,
+                                "last_apply_ts": 123.5}), encoding="utf-8")
+    st = day_state(path)
+    assert st == {"date": TODAY, "pairs": 0, "last_apply_ts": 123.5}
 
 
 # ---------- Task 3: LWW 定向＋平局路由（无裁决） ----------
@@ -383,6 +388,34 @@ def test_run_dream_report_only_does_not_block_later_apply(store, isolated_data_d
     assert _row(store, a)["superseded_by"] == b  # M 对不被前夜 report-only 报告挡住
 
 
+def test_report_only_run_does_not_advance_revival_anchor(store, isolated_data_dir):
+    """评审 I-2：日间 report-only 不得推走复活锚——白天 touch 的翻回对须留给当夜 apply。
+
+    锚＝state.last_apply_ts（apply 运行时落）＞最老日志 mtime（无 apply 史兜底）；
+    日间报告只追加当日日志，不动昨日日志的 mtime，也不写 last_apply_ts。
+    """
+    log_dir = isolated_data_dir / "logs"
+    log_dir.mkdir(parents=True)
+    yesterday = datetime.now() - timedelta(days=1)
+    old_log = log_dir / f"dream-{yesterday:%Y%m%d}.jsonl"
+    old_log.write_text("", encoding="utf-8")
+    old_ts = time.time() - 86400
+    os.utime(old_log, (old_ts, old_ts))  # 昨日 dream 日志（复活锚兜底源）
+    y = store.store("现行版", embedding=_E[0])
+    x = store.store("旧版翻回", embedding=_E[0])
+    _set_pointer(store, x, y)
+    _touch(store, y, 100)
+    _touch(store, x, time.time() - 60)  # 白天再确认（touch）
+
+    r1 = run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=False)  # 日间诊断
+    assert len(r1["phases"]["supersede"]["actions"]) == 1  # 看见复活对（报告）
+
+    run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=True)  # 当夜 apply
+    assert _row(store, x)["superseded_by"] is None  # 翻回：x 恢复现行
+    assert _row(store, y)["superseded_by"] == x  # y 让位
+    assert day_state(dream_state_path())["last_apply_ts"] > 0  # apply 落锚
+
+
 def test_notify_mechanical_filters(store, isolated_data_dir):
     log_dir = isolated_data_dir / "logs"
     log_dir.mkdir(parents=True)
@@ -430,10 +463,12 @@ def test_notify_mechanical_filters(store, isolated_data_dir):
                    if a["tier"] == "H-tie")
     assert {tie_act["pair"]["a_uid"], tie_act["pair"]["b_uid"]} == {x, y}
     tie_entry = next(e for e in n["important"] if e["kind"] == "tie")
-    assert tie_entry["action"] == (f"silicon-memory retire {tie_act['pair']['a_uid']}"
-                                   f" --by {tie_act['pair']['b_uid']}")  # 处置命令保留完整 uid
+    # 处置命令须与 mjs retire 契约一致（--ref/--by hot: 形态，贴进终端即可运行）
+    assert tie_entry["action"] == (f"silicon-memory retire --ref hot:{tie_act['pair']['a_uid']}"
+                                   f" --by hot:{tie_act['pair']['b_uid']}")
     flip_entry = next(e for e in n["important"] if e["kind"] == "flip")
-    assert f"silicon-memory retire {x2} --by {y2}" in flip_entry["action"]
+    assert flip_entry["action"] == (f"silicon-memory retire --ref hot:{x2}"
+                                    f" --by hot:{y2}")
     # 解释类附旧/新摘要
     explained_entry = next(e for e in n["important"] if e["kind"] == "explained")
     assert "偏好旧说法" in explained_entry["loser_brief"]
