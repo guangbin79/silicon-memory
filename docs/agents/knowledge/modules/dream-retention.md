@@ -45,7 +45,7 @@
 - **Id:** dream-retention/no-outer-root-command
 - **Source:** ./docs/superpowers/specs/2026-11-26-memory-groom-supersede-design.md, 9c3f5c8, 8dff698, fa24d1b
 - **裁定:** 三落点分工——引擎面＝`semantic-memory dream`（server CLI 管理子命令、rc2 白名单同步）；机面＝唯一 apply 入口 `maintain --apply`（hot 车厢薄委托 dream、02:00 单一拥有者、接线归部署方）；人面＝notify 邮件大白话正文；不设 `silicon-memory dream` 外层根命令
-- **落地:** 9c3f5c8 maintain hot 委托＋SKILL 命令表纪律行（v2.2 砍根命令）；`--apply` 纪律仅归 02:00 调度所有者、report-only 任何会话可跑；纪律落地三处＝dream 子命令 help、./skills/unified-memory/SKILL.md 命令表、dotfiles AGENTS 清单行（部署方）
+- **落地:** 9c3f5c8 maintain hot 委托＋SKILL 命令表纪律行（v2.2 砍根命令）；`--apply` 纪律仅归 02:00 调度所有者、report-only 任何会话可跑；纪律落地三处＝dream 子命令 help、./skills/unified-memory/SKILL.md 命令表、dotfiles AGENTS 清单行（部署方）；设计稿把该裁定记为 2026-11-27（本页落库与提交时间线均为 11-26，相差一天——引文照录未改）
 - **Prevention:** 新 groom 能力不加外层根命令——挂 maintain 参数面或 server 管理子命令；apply 权恒单一拥有者（02:00 调度），普通会话禁日常 apply
 - **Verbatim evidence（design §dream 接口）:**
 
@@ -93,8 +93,8 @@
 - **Source:** 1b41b0c, /home/guangbin/.opencode-agora-plaza/wiki/tasks/ag-4b1d5d.md, /home/guangbin/.opencode-agora-plaza/state/messages/00015427.md
 - **Symptom:** ag-4b1d5d verify 门两轮红之次红——门以裸 pytest（系统 python、无 numpy）运行，`test_cli_purge_dry_run` 的 CLI 子进程缺 `PYTHONPATH=src`，系统 python 下 `semantic_memory` 不可导入而失败
 - **Root cause:** CLI 冒烟用 `sys.executable -m semantic_memory` 子进程，不继承 pytest 注入的 pythonpath（pyproject `pythonpath=["src"]` 只作用于 pytest 进程内 import）；venv runner 靠 editable pth 掩盖缺口，系统 python runner 才暴露
-- **Fix:** 1b41b0c 给该子进程补 `PYTHONPATH=src`（对齐 lifecycle.py:502 既有兄弟用例模式）；两 runner 全绿复验：venv pytest 509/3、系统 python 474/5（numpy 缺失致 test_dream 模块级 skip，非失败）
-- **Prevention:** 新增 CLI 子进程用例照抄 lifecycle.py:502 模式（`PYTHONPATH=src` 显式传给子进程）；worktree 防测错对象＝`cd server && pytest tests -q`（pyproject pythonpath 使 worktree src 先于 editable pth）
+- **Fix:** 1b41b0c 给该子进程补 `PYTHONPATH=src`（对齐 ./server/tests/test_lifecycle.py 既有兄弟用例的 env 注入模式；历史笔记的 lifecycle.py:502 系行号漂移前简写，见下方引文照录）；两 runner 全绿复验：venv pytest 509/3、系统 python 474/5（numpy 缺失致 test_dream 模块级 skip，非失败）
+- **Prevention:** 新增 CLI 子进程用例照抄 ./server/tests/test_lifecycle.py 的 CLI 子进程 env 注入模式（`PYTHONPATH=src` 显式传给子进程，仓内多处同款；勿引用行号防漂移）；worktree 防测错对象＝`cd server && pytest tests -q`（pyproject pythonpath 使 worktree src 先于 editable pth）
 - **Verbatim evidence（过程笔记 00015427／任务页 ag-4b1d5d）:**
 
   ```text
