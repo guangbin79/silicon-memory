@@ -186,27 +186,17 @@ test("maintain --apply：hot 单一 dream 动作（apply=true，旧三 op 收敛
   assert.equal(report.actions.find((a) => a.op === "groom").status, "done");
 });
 
-test("dream 根命令：--apply 透传 hot.dream，action 带 dry_run=false，报告嵌 dream 数据", async () => {
-  const { calls, adapters } = fakes();
-  const { rc, report } = await runLifecycle(["dream", "--apply"], adapters);
-  assert.equal(rc, 0);
-  assert.equal(report.operation, "dream");
-  assert.deepEqual(calls.hot, [{ op: "dream", arg: { apply: true } }]);
-  const act = report.actions.find((a) => a.op === "dream");
-  assert.equal(act.layer, "hot");
-  assert.equal(act.status, "done");
-  assert.equal(act.dry_run, false);
-  const embedded = report.reports.find((r) => r.op === "dream" && r.layer === "hot");
-  assert.equal(embedded.data.status, "ok");
-  assert.equal(embedded.data.phases.supersede.applied, 1);
-});
-
-test("dream 根命令：缺省 report-only（apply=false，dry_run=true）", async () => {
+test("dream 无根命令（v2.2 用户裁定：外层入口唯一＝maintain）：dream 作为命令 → UsageError rc2", async () => {
   const { calls, adapters } = fakes();
   const { rc, report } = await runLifecycle(["dream"], adapters);
-  assert.equal(rc, 0);
-  assert.deepEqual(calls.hot, [{ op: "dream", arg: { apply: false } }]);
-  assert.equal(report.actions.find((a) => a.op === "dream").dry_run, true);
+  assert.equal(rc, 2);
+  assert.ok(report.errors[0].includes("未知命令: dream"));
+  assert.deepEqual(calls.hot, [], "不得触达 hot 适配器");
+});
+
+test("dream 无根命令：dream --apply 同样 rc2（无旁路）", async () => {
+  const { rc } = await runLifecycle(["dream", "--apply"], fakes().adapters);
+  assert.equal(rc, 2);
 });
 
 test("maintain --phase 仅 experience scope 合法：scope 非 experience → rc2；experience → 透传 phase", async () => {
@@ -354,9 +344,10 @@ test("lintOutcome：spawn 失败/输出非 lint 签名 → 抛错（failed/rc1 �
   assert.ok(ok.out.includes("INDEX_GAP"));
 });
 
-test("bin/silicon-memory 根 dispatch 已接线六命令（bash 面不 exec 真适配器，静态断言）", () => {
+test("bin/silicon-memory 根 dispatch 已接线五命令（bash 面不 exec 真适配器，静态断言；v2.2 无 dream 根命令）", () => {
   const sh = readFileSync(join(HERE, "silicon-memory"), "utf8");
-  assert.ok(sh.includes("load|settle|maintain|promote|retire|dream"), "dispatch case 缺失（含 dream）");
+  assert.ok(sh.includes("load|settle|maintain|promote|retire)"), "dispatch case 缺失");
+  assert.ok(!/load\|settle\|maintain\|promote\|retire\|dream\)/.test(sh), "v2.2 不应有 dream 根命令 case");
   assert.ok(sh.includes("lifecycle.mjs"), "lifecycle.mjs 入口缺失");
   assert.ok(sh.includes("memory)"), "旧 memory 子命令须保持兼容");
   assert.ok(sh.includes("knowledge)"), "旧 knowledge 子命令须保持兼容");

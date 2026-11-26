@@ -40,6 +40,7 @@ description: |
 | `silicon-memory load` | `--project <repo> --session <id> --query <中英关键词> --json` 跨层装配候选：知识(3)→经验(3)→热(5)，引用形如 `hot:<uid>`／`exp:<文件名>`／`know:<modules 相对路径>`。固定配额装配器不是全量检索——全库查重／退役档案深查用下方内部命令或 grep |
 | `silicon-memory settle` | `--project <repo> --session <同上> --json` 返回 `agent_actions`（capture-if-signaled／ingest-if-material）；不自动调 LLM、不写经验/知识 |
 | `silicon-memory maintain` | 缺省 report-only；`--apply` 仅归 02:00 调度拥有者，普通 agent 日常禁用 |
+| `semantic-memory dream`（引擎面） | maintain 热层车厢委托的做梦引擎：四相位近重收敛/蒸馏冲刷/TTL/噪声清扫；缺省 report-only 安全诊断；`--apply` 仅归 02:00 调度所有者，普通 agent 日常禁用（外层入口唯一＝maintain，人面＝notify 邮件） |
 | `silicon-memory promote` | 仅 `verdict: approved` 提案可 `--apply`；知识页写入仍归 ingest |
 | `silicon-memory retire` | 仅确认语义互斥才退役；不确定先问人 |
 

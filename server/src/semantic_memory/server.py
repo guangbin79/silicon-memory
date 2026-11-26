@@ -1166,6 +1166,7 @@ _USAGE = """usage: semantic-memory [-h] [command]
 
 语义记忆服务（单进程）。默认命令 serve：启动 HTTP 服务（REST 面）。
 管理子命令：setup / purge / backfill / eval / golden / consolidate / distill / sweep / supersede / noise-sweep / dream（详见各 --help）。
+dream＝做梦（近重收敛/蒸馏冲刷/TTL/噪声四相位）：缺省 report-only 安全诊断；--apply 仅归 02:00 调度所有者，普通 agent 日常禁用。
 """
 
 # 未知命令拒绝（评审 B1）：main() 的 if 链对未知 cmd 会落穿到 serve 启动门——

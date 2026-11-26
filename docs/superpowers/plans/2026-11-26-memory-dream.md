@@ -4,7 +4,7 @@
 
 **Goal:** 实现做梦接口——groom 定时调用的记忆自动整理统一面：全机械 LWW 近重收敛（零 LLM 裁决）＋既有三维护操作收编为相位，附 `/recall` 折叠与 capture 预检闸。
 
-**Architecture:** server 侧新增 `dream.py`（配对→LWW 定向→执行→报告，全参数注入可测，无 LLM），经 `semantic-memory dream` CLI 暴露；mjs 侧 maintain hot 收敛为单一 dream 委托＋`silicon-memory dream` 根命令。方向全走 `updated_at`；正确性交给反复记忆（复活重裁自修复）。
+**Architecture:** server 侧新增 `dream.py`（配对→LWW 定向→执行→报告，全参数注入可测，无 LLM），经 `semantic-memory dream`（server CLI 子命令＝引擎面）暴露；mjs 侧 maintain hot 收敛为单一 dream 委托——**不设 `silicon-memory dream` 外层根命令**（v2.2 裁定：机面唯一入口＝maintain，人面＝notify 邮件）。方向全走 `updated_at`；正确性交给反复记忆（复活重裁自修复）。
 
 **Tech Stack:** Python（server/src/semantic_memory，pytest）＋ Node ESM（bin/lifecycle.mjs，node:test）＋ bash（ae.mjs 测试脚本）。
 
@@ -22,6 +22,7 @@
 - 异常局部降级：配对/执行出错→相位内 errors 计数、跳过该批，不抛穿 `run_dream`。
 - **相位间写提交后才进下一相位**（all_vectors 写后读缓存窗口，db.py 注释明令；禁跨相位事务）。
 - maintain 五根命令报告契约不变；hot 三 op（noiseSweep/purge/distill）收敛为单一 `dream` op（已知 op 名变更）。
+- **无外层根命令（v2.2）**：不新增 `silicon-memory dream` mjs/bash 命令面；dream 引擎面＝server CLI 子命令；机面唯一 apply 入口＝`maintain --apply`；`--apply` 纪律（仅归 02:00 调度所有者，普通会话禁日常）写进 dream 子命令 help 文本与 `skills/unified-memory/SKILL.md` 命令表。
 - server CLI `_KNOWN_COMMANDS` 白名单加 `"dream"`（rc2 收口同步）。**部署序：server CLI 先于 mjs 委托面**。
 - 显式 remember/capture 直存语义不变；经验层 groom 波、云通道并流、知识层新代码不在本计划。
 
@@ -151,17 +152,19 @@ git commit -m "feat(dream): store 原语（翻转容许 supersede/复活候选/�
 - [ ] **Step 1: 失败测试**——同域近重仅新者返回＋`folded==1`；阈下双双返回；跨域不折；无向量存活。
 - [ ] **Step 2-4: 红绿**；- [ ] **Step 5: 提交**——`"feat(dream): /recall 注入前 LWW 折叠（零存储写）"`
 
-### Task 8: mjs 面——dream 根命令＋maintain hot 委托＋分发
+### Task 8: mjs 面——maintain hot 委托＋SKILL 命令表（v2.2：砍外层根命令）
 
 **Files:**
-- Modify: `bin/lifecycle.mjs`、`bin/lifecycle.test.mjs`、`bin/silicon-memory`、`README.md`、`README.zh-CN.md`
+- Modify: `bin/lifecycle.mjs`、`bin/lifecycle.test.mjs`、`README.md`、`README.zh-CN.md`、`skills/unified-memory/SKILL.md`、`docs/superpowers/{specs,plans}/` 落库档案（v2.2 重拷）
 
 **Interfaces:**
-- Produces: `runLifecycle` 接受根命令 `dream [--apply]`（`cmdDream`→`adapters.hot.dream({apply})`，stdout 单行 JSON）；`adapters.hot.dream = async ({apply}) => smCli(["dream", ...(apply?["--apply"]:[])])`；maintain hot 车厢（lifecycle.mjs:156-171）三动作收敛为单一 `{layer:"hot", op:"dream", dry_run:!apply}`＋report 嵌 dream 报告；bash `dream)` case＋usage 行。
+- Produces: `adapters.hot.dream = async ({apply}) => smCli(["dream", ...(apply?["--apply"]:[])])`；maintain hot 车厢（lifecycle.mjs:156-171）三动作收敛为单一 `{layer:"hot", op:"dream", dry_run:!apply}`＋report 嵌 dream 报告。**不新增 `silicon-memory dream` 根命令**（用户裁定：外层入口唯一＝maintain；dream 引擎面＝server CLI 子命令；人面＝notify 邮件）——无 `cmdDream`、bash 不加 `dream)` case、`runLifecycle` 不接 dream 命令。
+- `skills/unified-memory/SKILL.md` 命令表补 dream 行（对齐 maintain 行格式）：引擎面 `semantic-memory dream`——report-only 安全诊断；`--apply` 仅归 02:00 调度所有者，普通 agent 日常禁用。
+- server CLI dream 子命令 help/usage 文本写同款纪律句。
 
-- [ ] **Step 1: 失败测试**——①`dream --apply`→`calls.hot` 记 `dream {apply:true}`；②`maintain --apply`→hot 仅一个 dream 动作（旧三 op 断言改写）；③report-only→`dry_run:true`；④缺省 maintain→dream 照调。
-- [ ] **Step 2-4: 红绿**（删 maintain 三旧段与 adapters 对应项；保留 recall/settle/supersede/dream）
-- [ ] **Step 5: 提交**——`"feat(dream): maintain hot 委托＋根命令面＋rc2 收口"`
+- [ ] **Step 1: 失败测试**——①`maintain --apply`→hot 仅一个 dream 动作（旧三 op 断言改写）；②report-only→`dry_run:true`；③缺省 maintain→dream 照调；④`dream` 作为 runLifecycle 命令＝UsageError rc2（钉住无根命令）。
+- [ ] **Step 2-4: 红绿**（删 maintain 三旧段与 adapters 对应项，保留 recall/settle/supersede/dream；README 更新为「maintain hot 委托 dream 引擎」口径，无根命令）
+- [ ] **Step 5: 档案同步＋提交**——把 v2.2 源计划与设计稿（`/home/guangbin/.opencode/plan/` 同名文件）重拷入 `docs/superpowers/{specs,plans}/` 覆盖 v2.1 副本；`git commit -m "feat(dream): maintain hot 委托＋SKILL 命令表纪律行（v2.2 砍根命令）"`
 
 ### Task 9: capture 预检闸（收窄谓词＋已处置豁免）
 

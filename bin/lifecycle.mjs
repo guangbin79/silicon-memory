@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 统一记忆根命令控制面：load/settle/maintain/promote/retire/dream 六命令的编排层。
+// 统一记忆根命令控制面：load/settle/maintain/promote/retire 五命令的编排层。
 // 三层适配器（hot=热服务 HTTP＋本地维护 CLI / experience=ae.mjs / knowledge=ae.mjs lint）
 // 可注入——测试用假适配器零接触真实记忆库；生产走 defaultAdapters()。
 // 契约：统一报告 {operation,actions,agent_actions,candidates,reports,errors}；
@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire|dream} [options]
+const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire} [options]
   load      --project <path> --session <id> --query <text> [--store <dir>] [--limit <n>]
             跨层装配：知识(3)→经验(3)→热(5，--limit 仅覆盖热层)；命中规范化 hot:/exp:/know: 引用
   settle    --project <path> --session <id>
@@ -24,9 +24,6 @@ const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire|dream}
             dry-run 只做 proposal 校验＋返回 ingest 指令；--apply 需 verdict: approved，调 ae.mjs promote
   retire    --ref hot:<uid>|exp:<id> --by hot:<uid>|exp:<id>
             同层退役（hot→POST /api/memory/retire；exp→ae.mjs supersede）；跨层组合 rc2
-  dream     [--apply]
-            做梦（记忆自动整理统一面）：缺省 report-only；--apply 落写。
-            四相位＝LWW 近重收敛→蒸馏冲刷→TTL 收账→噪声清扫；报告常驻 notify 段
 
 全局旗标 --json：输出恒为 JSON 报告（接受该旗标以对齐文档面，不改变行为）`;
 
@@ -186,7 +183,9 @@ async function cmdMaintain(flags, adapters, report) {
 
 // ---- dream ----
 // dream 报告是嵌套全量（自带 status/day_state/phases/errors）——不进 action 的
-// 键展开（status 会覆盖动作契约），action 只带 {layer,op,dry_run}，报告整嵌 reports
+// 键展开（status 会覆盖动作契约），action 只带 {layer,op,dry_run}，报告整嵌 reports。
+// 无根命令（v2.2 用户裁定：外层入口唯一＝maintain 热层车厢；dream 引擎面＝server
+// CLI 子命令；人面＝notify 邮件）——本函数仅供 maintain hot 车厢委托调用。
 async function pushDream(report, apply, adapters) {
   const r = await safe(() => adapters.hot.dream({ apply }));
   if (r.ok) {
@@ -196,10 +195,6 @@ async function pushDream(report, apply, adapters) {
     report.actions.push({ layer: "hot", op: "dream", status: "failed", dry_run: !apply, error: r.error });
     report.errors.push(`hot:dream: ${r.error}`);
   }
-}
-
-async function cmdDream(flags, adapters, report) {
-  await pushDream(report, Boolean(flags.apply), adapters);
 }
 
 // ---- promote ----
@@ -270,7 +265,6 @@ export async function runLifecycle(argv, adapters = defaultAdapters()) {
         await cmdSettle(flags, adapters, report);
         break;
       case "maintain": await cmdMaintain(flags, adapters, report); break;
-      case "dream": await cmdDream(flags, adapters, report); break;
       case "promote":
         if (!flags.proposal) throw new UsageError("promote: 缺 --proposal");
         await cmdPromote(flags, adapters, report);
