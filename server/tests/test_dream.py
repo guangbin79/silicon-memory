@@ -6,8 +6,11 @@
 import inspect
 import json
 import os
+import subprocess
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -429,5 +432,43 @@ def test_notify_mechanical_filters(store, isolated_data_dir):
     explained_entry = next(e for e in n["important"] if e["kind"] == "explained")
     assert "偏好旧说法" in explained_entry["loser_brief"]
     assert "偏好新说法" in explained_entry["winner_brief"]
+
+
+# ---------- Task 5: 配置＋server CLI ----------
+
+
+def test_config_dream_keys(monkeypatch):
+    from semantic_memory.config import Config
+    for k in ("MEMORY_DREAM_PAIR_SIM", "MEMORY_DREAM_MAX_PER_NIGHT", "MEMORY_FOLD_SIM"):
+        monkeypatch.delenv(k, raising=False)
+    cfg = Config.from_env()
+    assert cfg.pair_sim == 0.92
+    assert cfg.max_per_night == 200
+    assert cfg.fold_sim == 0.95
+    monkeypatch.setenv("MEMORY_DREAM_PAIR_SIM", "0.95")
+    assert Config.from_env().pair_sim == 0.95
+
+
+def test_cli_dream_whitelist():
+    from semantic_memory.server import _KNOWN_COMMANDS
+    assert "dream" in _KNOWN_COMMANDS
+
+
+def test_cli_dream_smoke_and_rc2(tmp_path):
+    db = tmp_path / "cli.db"
+    s = MemoryStore(db)
+    s.close()
+    env = {**os.environ, "MEMORY_DB_PATH": str(db), "MEMORY_MODEL_PATH": "",
+           "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    proc = subprocess.run([sys.executable, "-m", "semantic_memory", "dream"],
+                          capture_output=True, text=True, env=env, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["phases"]["supersede"] == {"skipped": "unavailable"}
+    assert report["phases"]["noise"]["dry_run"] is True
+    assert "notify" in report
+    proc2 = subprocess.run([sys.executable, "-m", "semantic_memory", "bogus-cmd"],
+                           capture_output=True, text=True, env=env, timeout=120)
+    assert proc2.returncode == 2
 
 

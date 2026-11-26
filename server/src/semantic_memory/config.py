@@ -164,6 +164,10 @@ class Config:
     discovery_file: Path | None  # 启动后写入 {url,port,pid,...}；None = 不写
     allow_bm25_only: bool       # 启动门恒放行开关（任务 9/R2）：纯 BM25 显式合法
     noise_prefixes: tuple[str, ...] = ()  # 任务事件噪声前缀表（决策 11 泛化缝；公开默认空=惰性）
+    # ---- dream（做梦：groom 定时调用的记忆自动整理统一面；全机械 LWW）----
+    pair_sim: float = 0.92      # 同域近重配对余弦阈值（检测面）
+    max_per_night: int = 200    # 遗忘限速：每自然日取代对上限（跨 invocation 记账）
+    fold_sim: float = 0.95      # /recall 注入前近重折叠余弦阈值（读取面止血）
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -286,4 +290,7 @@ class Config:
             allow_bm25_only=_bool(
                 "MEMORY_ALLOW_BM25_ONLY", "allow_bm25_only",
                 False, lambda v: v == "1"),
+            pair_sim=float(s("MEMORY_DREAM_PAIR_SIM", "pair_sim", "0.92")),
+            max_per_night=int(s("MEMORY_DREAM_MAX_PER_NIGHT", "max_per_night", "200")),
+            fold_sim=float(s("MEMORY_FOLD_SIM", "fold_sim", "0.95")),
         )

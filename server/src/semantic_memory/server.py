@@ -40,6 +40,7 @@ from .config import (RERANK_GGUF_NAME, Config, auto_distill_model_name, auto_rer
 from .consistency import run_sweep
 from .db import MemoryStore
 from .distiller import Distiller
+from .dream import run_dream
 from .embedder import Embedder, _card_free_mib, _card_total_mib
 from .graph import cross_project_extras, graph_edges
 from .hybrid import hybrid_recall
@@ -1160,7 +1161,7 @@ def _cmd_supersede(argv: list[str]) -> int:
 _USAGE = """usage: semantic-memory [-h] [command]
 
 语义记忆服务（单进程）。默认命令 serve：启动 HTTP 服务（REST 面）。
-管理子命令：setup / purge / backfill / eval / golden / consolidate / distill / sweep / supersede / noise-sweep（详见各 --help）。
+管理子命令：setup / purge / backfill / eval / golden / consolidate / distill / sweep / supersede / noise-sweep / dream（详见各 --help）。
 """
 
 # 未知命令拒绝（评审 B1）：main() 的 if 链对未知 cmd 会落穿到 serve 启动门——
@@ -1168,7 +1169,7 @@ _USAGE = """usage: semantic-memory [-h] [command]
 # 服务启动（端口占用/挂死/副作用），白名单外一律 rc2 干净失败
 _KNOWN_COMMANDS = frozenset({
     "serve", "setup", "purge", "backfill", "eval", "golden",
-    "consolidate", "distill", "sweep", "supersede", "noise-sweep",
+    "consolidate", "distill", "sweep", "supersede", "noise-sweep", "dream",
 })
 
 
@@ -1229,6 +1230,10 @@ def main() -> None:
         return
     if cmd == "noise-sweep":  # 夜扫维护 CLI（与 purge/distill 同级，不经 HTTP 批量闸）
         print(json.dumps(noise_sweep(store, dry_run="--dry-run" in args), ensure_ascii=False))
+        return
+    if cmd == "dream":  # 做梦（groom 定时调用）：缺省 report-only，--apply 落写
+        print(json.dumps(run_dream(store, cfg, distiller, embedder,
+                                   apply="--apply" in args), ensure_ascii=False))
         return
     if cmd == "supersede":  # 人工温层退役入口（cloud.Consolidator 同款 UPDATE）
         raise SystemExit(_cmd_supersede(args[1:]))
