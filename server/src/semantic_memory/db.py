@@ -339,6 +339,63 @@ class MemoryStore:
                 (now, now, uid),
             )
 
+    # ---------- dream 原语（做梦接口：全机械 LWW，零 LLM；编排见 dream.py） ----------
+
+    def dream_apply(self, loser: str, winner: str) -> bool:
+        """挂 loser.superseded_by=winner（superseded_at=now）。翻转容许：winner 若被
+        loser 取代（含人工 retire 指针）先清空——实例指针无人工豁免（用户裁定
+        2026-11-26：人工仅立法与平局）。不碰 deleted，单事务，返回是否变更。
+        """
+        now = time.time()
+        changed = False
+        with self.conn:
+            cur = self.conn.execute(
+                "UPDATE memories SET superseded_by=NULL, superseded_at=NULL"
+                " WHERE uid=? AND superseded_by=?",
+                (winner, loser),
+            )
+            changed = cur.rowcount > 0
+            cur = self.conn.execute(
+                "UPDATE memories SET superseded_by=?, superseded_at=?"
+                " WHERE uid=? AND superseded_by IS NOT ?",
+                (winner, now, loser, winner),
+            )
+            changed = changed or cur.rowcount > 0
+        return changed
+
+    def revival_candidates(self, since: float) -> list[sqlite3.Row]:
+        """被取代条目中最近被再确认者（updated_at>since）——复活重裁的配对池。"""
+        return self.conn.execute(
+            "SELECT uid, updated_at FROM memories"
+            " WHERE superseded_by IS NOT NULL AND deleted=0 AND updated_at>?"
+            " ORDER BY uid",
+            (since,),
+        ).fetchall()
+
+    def vectors_of(self, uids: list[str]) -> dict[str, "np.ndarray | None"]:
+        """批量取向量；缺向量/不存在的 uid 映射 None（折叠与配对判定用）。"""
+        out: dict = {uid: None for uid in uids}
+        if not uids or np is None:
+            return out
+        marks = ",".join("?" * len(uids))
+        rows = self.conn.execute(
+            f"SELECT uid, embedding FROM memories_vec WHERE uid IN ({marks})", uids
+        ).fetchall()
+        for r in rows:
+            out[r["uid"]] = np.frombuffer(r["embedding"], dtype=np.float32)
+        return out
+
+    def active_projects(self) -> list[str]:
+        """活跃 project 去重（dream 同域配对桶枚举）：deleted=0 且未被取代。"""
+        return [
+            r[0]
+            for r in self.conn.execute(
+                "SELECT DISTINCT project FROM memories"
+                " WHERE deleted=0 AND superseded_by IS NULL AND project IS NOT NULL"
+                " ORDER BY 1"
+            )
+        ]
+
     def distinct_projects(self) -> list[str]:
         """memories 与 injections 两表的全部非空 project 值（回填迁移用）。"""
         return [
