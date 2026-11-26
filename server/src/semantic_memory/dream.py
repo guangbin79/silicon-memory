@@ -113,6 +113,20 @@ def _bucket_pairs(uids: list[str], vecs: list, domain: str | None,
     return out
 
 
+def route(pairs: list[dict], cfg) -> list[dict]:
+    """纯 LWW 定向＋平局留人：a_ts<b_ts→M（旧让位新）；a_ts==b_ts→H-tie 零执行。
+
+    零 LLM：无模型注入面、无置信分、无 relation——方向只由时间定。
+    """
+    actions: list[dict] = []
+    for p in pairs:
+        if p["a_ts"] == p["b_ts"]:
+            actions.append({"pair": p, "tier": "H-tie", "loser": None, "winner": None})
+        else:
+            actions.append({"pair": p, "tier": "M", "loser": p["a_uid"], "winner": p["b_uid"]})
+    return actions
+
+
 def collect_pairs(store, cfg, last_run_ts: float | None) -> dict:
     """同域近重配对：global 桶＋各活跃 project 桶，复活候选并入其域。
 

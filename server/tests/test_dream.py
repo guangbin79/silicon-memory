@@ -3,6 +3,7 @@
 设计：docs/superpowers/specs/2026-11-26-memory-groom-supersede-design.md
 计划：docs/superpowers/plans/2026-11-26-memory-dream.md
 """
+import inspect
 import json
 from datetime import datetime
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from semantic_memory.dream import (
     collect_pairs,
     day_state,
     dream_state_path,
+    route,
     spend,
 )
 
@@ -223,4 +225,37 @@ def test_day_state_natural_day_rollover(tmp_path):
     assert day_state(path)["pairs"] == 2
     path.write_text(json.dumps({"date": "2000-01-01", "pairs": 5}), encoding="utf-8")
     assert day_state(path)["pairs"] == 0  # 自然日翻账
+
+
+# ---------- Task 3: LWW 定向＋平局路由（无裁决） ----------
+
+
+def _pair(a, b, a_ts, b_ts, domain=None):
+    return {"a_uid": a, "a_ts": a_ts, "b_uid": b, "b_ts": b_ts, "domain": domain}
+
+
+def test_route_recantment_pair_direction_by_time(store, isolated_data_dir):
+    # "偏好X/不再偏好X"：翻供不区分——方向永远由时间定，新者存活，无模型参与
+    old = store.store("偏好X", embedding=_E[0])
+    new = store.store("不再偏好X", embedding=_E[0])
+    _touch(store, old, 100)
+    _touch(store, new, 200)
+    actions = route(collect_pairs(store, _cfg(), None)["pairs"], _cfg())
+    assert len(actions) == 1
+    assert actions[0]["tier"] == "M"
+    assert actions[0]["loser"] == old and actions[0]["winner"] == new
+    assert actions[0]["pair"]["a_uid"] == old
+
+
+def test_route_tie_keeps_both_for_human():
+    actions = route([_pair("x", "y", 100, 100)], _cfg())
+    assert len(actions) == 1
+    assert actions[0]["tier"] == "H-tie"
+    assert actions[0]["loser"] is None and actions[0]["winner"] is None
+
+
+def test_route_has_no_llm_surface():
+    sig = inspect.signature(route)
+    assert list(sig.parameters) == ["pairs", "cfg"]  # 无模型注入面＝零 LLM 的证明
+
 
