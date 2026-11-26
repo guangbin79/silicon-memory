@@ -79,12 +79,12 @@ git clone https://github.com/guangbin79/silicon-memory && cd silicon-memory
    ▼
 semantic-memory 服务 — http://127.0.0.1:8765（Python 标准库，fail-open）
    SQLite＋FTS5(porter|trigram) BM25＋Qwen3 GGUF 向量＋RRF＋本地 rerank
-   异步蒸馏 → 带类型事实 · TTL/supersede 留存 · web UI
+   异步蒸馏 → 带类型事实 · TTL/supersede 留存 · dream（夜间 LWW 收敛） · web UI
    ▲
 silicon-memory CLI — 面向 agent 的指令面（声明即用，装好即在 PATH）
    memory capture|query|supersede|promote|…    knowledge query|ingest|lint
-   lifecycle load|settle|maintain|promote|retire — 统一控制面
-   （settle/retire → /api/memory/settle|retire · maintain → 本地 CLI）
+   lifecycle load|settle|maintain|promote|retire|dream — 统一控制面
+   （settle/retire → /api/memory/settle|retire · maintain/dream → 本地 CLI）
         │                                           │
    ~/.agent-experiences              <项目>/docs/agents/knowledge/
    （episodic，跨项目）               （semantic，随仓，版本化）

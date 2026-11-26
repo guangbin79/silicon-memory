@@ -81,12 +81,12 @@ Your sessions (opencode v2 + plugin · other harnesses via lifecycle hooks)
    ▼
 semantic-memory service — http://127.0.0.1:8765 (Python stdlib, fail-open)
    SQLite + FTS5(porter|trigram) BM25 + Qwen3 GGUF vectors + RRF + local rerank
-   async distillation → typed facts · TTL/supersede retention · web UI
+   async distillation → typed facts · TTL/supersede retention · dream (nightly LWW consolidation) · web UI
    ▲
 silicon-memory CLI — the agent-facing face (declare it, it's on PATH)
    memory capture|query|supersede|promote|…    knowledge query|ingest|lint
-   lifecycle load|settle|maintain|promote|retire — unified control plane
-   (settle/retire → /api/memory/settle|retire · maintain → local CLI)
+   lifecycle load|settle|maintain|promote|retire|dream — unified control plane
+   (settle/retire → /api/memory/settle|retire · maintain/dream → local CLI)
         │                                           │
    ~/.agent-experiences              <project>/docs/agents/knowledge/
    (episodic, cross-project)         (semantic, in-repo, versioned)

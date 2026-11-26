@@ -30,9 +30,9 @@ function fakes(behavior = {}) {
     ])),
     settle: wrap("hot", "settle", behavior.settle ?? (() => ({ flushed: true }))),
     supersede: wrap("hot", "supersede", behavior.hotSupersede ?? (() => ({ ok: true }))),
-    purge: wrap("hot", "purge", behavior.purge ?? (() => ({ purged: 3 }))),
-    noiseSweep: wrap("hot", "noiseSweep", behavior.noiseSweep ?? (({ dry_run }) => ({ dry_run, candidates: 2 }))),
-    ...(behavior.distill ? { distill: wrap("hot", "distill", behavior.distill) } : {}),
+    dream: wrap("hot", "dream", behavior.dream ?? (({ apply }) => ({
+      status: "ok", day_state: { pairs: 1 }, phases: { supersede: { applied: apply ? 1 : 0 } },
+    }))),
   };
   const experience = {
     query: wrap("experience", "query", behavior.query ?? (() => ({
@@ -156,35 +156,57 @@ test("settle：热层失败 → rc1", async () => {
   assert.equal(report.actions[0].status, "failed");
 });
 
-test("maintain：缺省 report-only——lint findings 记 findings 非 failed，purge/distill skipped，groom 缺席记 skipped:groom_unavailable", async () => {
+test("maintain：缺省 report-only——lint findings 记 findings 非 failed，hot 委托 dream(dry_run) 且嵌报告，groom 缺席记 skipped:groom_unavailable", async () => {
   const { calls, adapters } = fakes();
   const { rc, report } = await runLifecycle(["maintain", "--json"], adapters);
   assert.equal(rc, 0, "findings/done/skipped 均 rc0");
   const byKey = Object.fromEntries(report.actions.map((a) => [`${a.layer}:${a.op}`, a]));
   assert.equal(byKey["knowledge:lint"].status, "findings");
-  assert.equal(byKey["hot:purge"].status, "skipped");
-  assert.equal(byKey["hot:purge"].reason, "report_only");
-  assert.equal(byKey["hot:distill"].status, "skipped");
+  assert.equal(byKey["hot:dream"].status, "done");
+  assert.equal(byKey["hot:dream"].dry_run, true, "report-only 下 dream 以 dry_run 语义调用");
+  assert.deepEqual(calls.hot, [{ op: "dream", arg: { apply: false } }]);
   assert.equal(byKey["experience:groom"].status, "skipped");
   assert.equal(byKey["experience:groom"].reason, "groom_unavailable");
-  assert.equal(calls.hot.filter((c) => c.op === "noiseSweep")[0].arg.dry_run, true, "report-only 下 noiseSweep 走 dry_run");
-  assert.equal(calls.hot.filter((c) => c.op === "purge").length, 0, "report-only 不调 purge");
   assert.ok(report.reports.some((r) => String(r.text ?? r).includes("INDEX_GAP")), "lint 发现须进 reports");
+  assert.ok(report.reports.some((r) => r.layer === "hot" && r.op === "dream"), "dream 报告须嵌 reports");
 });
 
-test("maintain --apply：purge/noiseSweep(dry_run=false)/groom(apply=true) 实调，distill 适配器缺席仍 skipped", async () => {
+test("maintain --apply：hot 单一 dream 动作（apply=true，旧三 op 收敛）＋groom(apply=true) 实调", async () => {
   const { calls, adapters } = fakes({
     groom: ({ phase, apply }) => ({ status: "done", phase, apply }),
   });
   const { rc, report } = await runLifecycle(["maintain", "--apply"], adapters);
   assert.equal(rc, 0);
-  assert.equal(calls.hot.filter((c) => c.op === "purge").length, 1);
-  assert.equal(calls.hot.filter((c) => c.op === "noiseSweep")[0].arg.dry_run, false);
+  assert.deepEqual(calls.hot.map((c) => c.op), ["dream"], "hot 层只应有 dream 一个动作");
+  assert.deepEqual(calls.hot[0].arg, { apply: true });
   assert.deepEqual(
     calls.experience.find((c) => c.op === "groom").arg,
     { phase: "all", apply: true, project: undefined, store: undefined },
   );
   assert.equal(report.actions.find((a) => a.op === "groom").status, "done");
+});
+
+test("dream 根命令：--apply 透传 hot.dream，action 带 dry_run=false，报告嵌 dream 数据", async () => {
+  const { calls, adapters } = fakes();
+  const { rc, report } = await runLifecycle(["dream", "--apply"], adapters);
+  assert.equal(rc, 0);
+  assert.equal(report.operation, "dream");
+  assert.deepEqual(calls.hot, [{ op: "dream", arg: { apply: true } }]);
+  const act = report.actions.find((a) => a.op === "dream");
+  assert.equal(act.layer, "hot");
+  assert.equal(act.status, "done");
+  assert.equal(act.dry_run, false);
+  const embedded = report.reports.find((r) => r.op === "dream" && r.layer === "hot");
+  assert.equal(embedded.data.status, "ok");
+  assert.equal(embedded.data.phases.supersede.applied, 1);
+});
+
+test("dream 根命令：缺省 report-only（apply=false，dry_run=true）", async () => {
+  const { calls, adapters } = fakes();
+  const { rc, report } = await runLifecycle(["dream"], adapters);
+  assert.equal(rc, 0);
+  assert.deepEqual(calls.hot, [{ op: "dream", arg: { apply: false } }]);
+  assert.equal(report.actions.find((a) => a.op === "dream").dry_run, true);
 });
 
 test("maintain --phase 仅 experience scope 合法：scope 非 experience → rc2；experience → 透传 phase", async () => {
@@ -332,9 +354,9 @@ test("lintOutcome：spawn 失败/输出非 lint 签名 → 抛错（failed/rc1 �
   assert.ok(ok.out.includes("INDEX_GAP"));
 });
 
-test("bin/silicon-memory 根 dispatch 已接线五命令（bash 面不 exec 真适配器，静态断言）", () => {
+test("bin/silicon-memory 根 dispatch 已接线六命令（bash 面不 exec 真适配器，静态断言）", () => {
   const sh = readFileSync(join(HERE, "silicon-memory"), "utf8");
-  assert.ok(sh.includes("load|settle|maintain|promote|retire"), "dispatch case 缺失");
+  assert.ok(sh.includes("load|settle|maintain|promote|retire|dream"), "dispatch case 缺失（含 dream）");
   assert.ok(sh.includes("lifecycle.mjs"), "lifecycle.mjs 入口缺失");
   assert.ok(sh.includes("memory)"), "旧 memory 子命令须保持兼容");
   assert.ok(sh.includes("knowledge)"), "旧 knowledge 子命令须保持兼容");
@@ -381,11 +403,11 @@ test("smCliRun：参数透传＋stdout JSON 解析；spawn 失败/非零 rc/坏 
   assert.throws(() => smCliRun(badJson)(["distill"]), /输出非 JSON/);
 });
 
-test("生产 hot 适配器：settle/supersede 走统一端点；purge/noiseSweep/distill 走本地 CLI（不经 /api/maintenance/*）", async () => {
+test("生产 hot 适配器：settle/supersede 走统一端点；dream 走本地 CLI（旧 purge/noiseSweep/distill 三面已收敛，不经 /api/maintenance/*）", async () => {
   const dir = mkdtempSync(join(tmpdir(), "sm-ad-"));
   const log = join(dir, "args.log");
   const bin = join(dir, "sm-fake");
-  writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${log}"\necho '{"status":"done"}'\n`, { mode: 0o755 });
+  writeFileSync(bin, `#!/bin/sh\necho "$*" >> "${log}"\necho '{"status":"ok"}'\n`, { mode: 0o755 });
   const realFetch = globalThis.fetch;
   const seen = [];
   globalThis.fetch = async (url, init) => {
@@ -402,10 +424,12 @@ test("生产 hot 适配器：settle/supersede 走统一端点；purge/noiseSweep
     await hot.supersede({ uid: "u1", by: "u2" });
     assert.deepEqual(seen.map((s) => s.url), ["http://127.0.0.1:9/api/memory/settle", "http://127.0.0.1:9/api/memory/retire"]);
     assert.deepEqual(seen[1].body, { uid: "u1", by: "u2" }, "retire 载荷与旧 /supersede 同形");
-    assert.deepEqual(await hot.purge(), { status: "done" });
-    assert.deepEqual(await hot.noiseSweep({ dry_run: true }), { status: "done" });
-    assert.deepEqual(await hot.distill({ apply: true }), { status: "done" });
-    assert.equal(readFileSync(log, "utf8"), "purge\nnoise-sweep --dry-run\ndistill\n", "CLI 参数序：purge → noise-sweep --dry-run → distill");
+    assert.deepEqual(await hot.dream({ apply: false }), { status: "ok" });
+    assert.deepEqual(await hot.dream({ apply: true }), { status: "ok" });
+    assert.equal(readFileSync(log, "utf8"), "dream\ndream --apply\n", "CLI 参数序：缺省 dream → dream --apply");
+    assert.equal(hot.purge, undefined, "旧 purge 面已收敛");
+    assert.equal(hot.noiseSweep, undefined, "旧 noiseSweep 面已收敛");
+    assert.equal(hot.distill, undefined, "旧 distill 面已收敛");
   } finally {
     globalThis.fetch = realFetch;
     if (prevUrl === undefined) delete process.env.MEMORY_PLUGIN_URL; else process.env.MEMORY_PLUGIN_URL = prevUrl;

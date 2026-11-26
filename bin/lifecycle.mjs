@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 统一记忆根命令控制面：load/settle/maintain/promote/retire 五命令的编排层。
+// 统一记忆根命令控制面：load/settle/maintain/promote/retire/dream 六命令的编排层。
 // 三层适配器（hot=热服务 HTTP＋本地维护 CLI / experience=ae.mjs / knowledge=ae.mjs lint）
 // 可注入——测试用假适配器零接触真实记忆库；生产走 defaultAdapters()。
 // 契约：统一报告 {operation,actions,agent_actions,candidates,reports,errors}；
@@ -12,18 +12,21 @@ import { homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire} [options]
+const USAGE = `usage: silicon-memory {load|settle|maintain|promote|retire|dream} [options]
   load      --project <path> --session <id> --query <text> [--store <dir>] [--limit <n>]
             跨层装配：知识(3)→经验(3)→热(5，--limit 仅覆盖热层)；命中规范化 hot:/exp:/know: 引用
   settle    --project <path> --session <id>
             触发热层 settle（POST /api/memory/settle）＋返回 capture-if-signaled / ingest-if-material 指令
   maintain  [--project <path>] [--scope hot,experience,knowledge] [--phase all|groom|judge] [--apply] [--store <dir>]
             缺省 report-only；--phase 仅 experience scope 合法；knowledge lint findings 记 findings 非 failed
-            热层维护（purge/distill/noise-sweep）经本地 semantic-memory CLI，不经 HTTP 批量闸
+            热层维护经单一 dream 委托（semantic-memory dream 四相位），不经 HTTP 批量闸
   promote   --proposal <path> [--apply] [--experience <id> --to <know ref>]
             dry-run 只做 proposal 校验＋返回 ingest 指令；--apply 需 verdict: approved，调 ae.mjs promote
   retire    --ref hot:<uid>|exp:<id> --by hot:<uid>|exp:<id>
             同层退役（hot→POST /api/memory/retire；exp→ae.mjs supersede）；跨层组合 rc2
+  dream     [--apply]
+            做梦（记忆自动整理统一面）：缺省 report-only；--apply 落写。
+            四相位＝LWW 近重收敛→蒸馏冲刷→TTL 收账→噪声清扫；报告常驻 notify 段
 
 全局旗标 --json：输出恒为 JSON 报告（接受该旗标以对齐文档面，不改变行为）`;
 
@@ -154,21 +157,9 @@ async function cmdMaintain(flags, adapters, report) {
   for (const layer of SCOPES) {
     if (!scopes.includes(layer)) continue;
     if (layer === "hot") {
-      // noiseSweep 自带 dry_run 语义：report-only 也安全执行
-      const sweep = await pushAction(report, { layer: "hot", op: "noiseSweep", dry_run: !apply },
-        () => adapters.hot.noiseSweep({ dry_run: !apply }));
-      if (sweep.ok) report.reports.push({ layer: "hot", op: "noiseSweep", data: sweep.value });
-      // purge/distill 是变更型操作：report-only 一律跳过
-      if (apply) {
-        const purged = await pushAction(report, { layer: "hot", op: "purge" }, () => adapters.hot.purge());
-        if (purged.ok) report.reports.push({ layer: "hot", op: "purge", data: purged.value });
-      } else report.actions.push({ layer: "hot", op: "purge", status: "skipped", reason: "report_only" });
-      if (typeof adapters.hot.distill !== "function")
-        report.actions.push({ layer: "hot", op: "distill", status: "skipped", reason: "unavailable" });
-      else if (apply) {
-        const d = await pushAction(report, { layer: "hot", op: "distill" }, () => adapters.hot.distill({ apply }));
-        if (d.ok && d.value) report.reports.push({ layer: "hot", op: "distill", data: d.value });
-      } else report.actions.push({ layer: "hot", op: "distill", status: "skipped", reason: "report_only" });
+      // dream 统一面（ag-4b1d5d）：热层维护收敛为单一 dream 委托——四相位
+      // （supersede→distill→purge→noise）由 server CLI 一次编排，报告整嵌。
+      await pushDream(report, apply, adapters);
     } else if (layer === "experience") {
       // SM_EXPERIENCE_RUNNER 未配置（适配器无 groom 面）→ 只报告 skipped，绝不扫描 home
       if (typeof adapters.experience.groom !== "function") {
@@ -191,6 +182,24 @@ async function cmdMaintain(flags, adapters, report) {
       }
     }
   }
+}
+
+// ---- dream ----
+// dream 报告是嵌套全量（自带 status/day_state/phases/errors）——不进 action 的
+// 键展开（status 会覆盖动作契约），action 只带 {layer,op,dry_run}，报告整嵌 reports
+async function pushDream(report, apply, adapters) {
+  const r = await safe(() => adapters.hot.dream({ apply }));
+  if (r.ok) {
+    report.actions.push({ layer: "hot", op: "dream", status: "done", dry_run: !apply });
+    if (r.value) report.reports.push({ layer: "hot", op: "dream", data: r.value });
+  } else {
+    report.actions.push({ layer: "hot", op: "dream", status: "failed", dry_run: !apply, error: r.error });
+    report.errors.push(`hot:dream: ${r.error}`);
+  }
+}
+
+async function cmdDream(flags, adapters, report) {
+  await pushDream(report, Boolean(flags.apply), adapters);
 }
 
 // ---- promote ----
@@ -261,6 +270,7 @@ export async function runLifecycle(argv, adapters = defaultAdapters()) {
         await cmdSettle(flags, adapters, report);
         break;
       case "maintain": await cmdMaintain(flags, adapters, report); break;
+      case "dream": await cmdDream(flags, adapters, report); break;
       case "promote":
         if (!flags.proposal) throw new UsageError("promote: 缺 --proposal");
         await cmdPromote(flags, adapters, report);
@@ -335,17 +345,15 @@ export function defaultAdapters() {
     if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${text.slice(0, 200)}`);
     return text ? JSON.parse(text) : {};
   };
-  // 热层维护三操作（purge/distill/noiseSweep）走本地 semantic-memory CLI——
-  // 维护 CLI 与 HTTP 批量闸同级，无需 MEMORY_TOKEN；spawn 失败/非零 rc 由
-  // smCliRun 抛错记 failed（不吞错）。解析链见 resolveSmBin。
+  // 热层维护统一走 dream（四相位一次编排；ag-4b1d5d 收敛 purge/distill/noiseSweep
+  // 三旧面）——维护 CLI 与 HTTP 批量闸同级，无需 MEMORY_TOKEN；spawn 失败/非零
+  // rc 由 smCliRun 抛错记 failed（不吞错）。解析链见 resolveSmBin。
   const smCli = smCliRun(resolveSmBin());
   const hot = {
     recall: async ({ query, limit, project }) => (await httpPost("/recall", { query, limit, project })).hits ?? [],
     settle: async () => { await httpPost("/api/memory/settle"); return { flushed: true }; }, // 生产映射：统一生命周期端点触发队列 flush（204 空体）
     supersede: async ({ uid, by }) => httpPost("/api/memory/retire", { uid, by }),
-    purge: async () => smCli(["purge"]),
-    noiseSweep: async ({ dry_run }) => smCli(["noise-sweep", ...(dry_run ? ["--dry-run"] : [])]),
-    distill: async () => smCli(["distill"]),
+    dream: async ({ apply }) => smCli(["dream", ...(apply ? ["--apply"] : [])]),
   };
   const experience = {
     query: async ({ query, store }) =>
