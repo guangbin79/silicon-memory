@@ -159,26 +159,36 @@ def _uid_meta(store, uids: list[str]) -> dict[str, tuple[float, str | None]]:
     return {r["uid"]: (float(r["updated_at"]), r["project"]) for r in rows}
 
 
-def _bucket_pairs(uids: list[str], vecs: list, domain: str | None,
+def _bucket_pairs(uids: list[str], vecs: list, domain,
                   pair_sim: float, meta: dict) -> list[dict]:
-    """桶内暴力余弦：cos≥pair_sim 成对；a 恒为 updated_at 旧侧（相等入对留 route 判平局）。"""
-    mat = np.stack(vecs).astype(np.float32)
-    norms = np.linalg.norm(mat, axis=1)
-    normed = mat / np.maximum(norms, 1e-12)[:, None]
-    sim = normed @ normed.T
-    n = len(uids)
+    """桶内暴力余弦：cos≥pair_sim 成对；a 恒为 updated_at 旧侧（相等入对留 route 判平局）。
+
+    同维才可比：向量按维数分组配对（余弦仅同维有定义）——换嵌入模型遗留的
+    异维行只失去本夜配对资格，不炸整批（局部降级，终闸 B-2）。
+    """
     out: list[dict] = []
-    for i, j in zip(*np.triu_indices(n, k=1)):
-        if float(sim[i, j]) < pair_sim:
+    by_dim: dict[int, list[int]] = {}
+    for i, v in enumerate(vecs):
+        by_dim.setdefault(int(np.shape(v)[0]), []).append(i)
+    for members in (by_dim[d] for d in sorted(by_dim)):
+        if len(members) < 2:
             continue
-        u_i, u_j = uids[i], uids[j]
-        ts_i, ts_j = meta[u_i][0], meta[u_j][0]
-        if ts_i <= ts_j:
-            a_uid, a_ts, b_uid, b_ts = u_i, ts_i, u_j, ts_j
-        else:
-            a_uid, a_ts, b_uid, b_ts = u_j, ts_j, u_i, ts_i
-        out.append({"a_uid": a_uid, "a_ts": a_ts, "b_uid": b_uid,
-                    "b_ts": b_ts, "domain": domain})
+        mat = np.stack([vecs[i] for i in members]).astype(np.float32)
+        norms = np.linalg.norm(mat, axis=1)
+        normed = mat / np.maximum(norms, 1e-12)[:, None]
+        sim = normed @ normed.T
+        n = len(members)
+        for i, j in zip(*np.triu_indices(n, k=1)):
+            if float(sim[i, j]) < pair_sim:
+                continue
+            u_i, u_j = uids[members[i]], uids[members[j]]
+            ts_i, ts_j = meta[u_i][0], meta[u_j][0]
+            if ts_i <= ts_j:
+                a_uid, a_ts, b_uid, b_ts = u_i, ts_i, u_j, ts_j
+            else:
+                a_uid, a_ts, b_uid, b_ts = u_j, ts_j, u_i, ts_i
+            out.append({"a_uid": a_uid, "a_ts": a_ts, "b_uid": b_uid,
+                        "b_ts": b_ts, "domain": domain})
     return out
 
 

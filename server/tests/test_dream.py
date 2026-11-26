@@ -416,6 +416,42 @@ def test_report_only_run_does_not_advance_revival_anchor(store, isolated_data_di
     assert day_state(dream_state_path())["last_apply_ts"] > 0  # apply 落锚
 
 
+def test_revival_dim_mismatch_degrades_locally(store, isolated_data_dir):
+    """终闸 B-2：换嵌入模型遗留的异维复活行不得炸掉整夜配对。
+
+    局部降级（计划钉死）：坏行只失去配对资格，相位存活——同桶其他近重对
+    照常收集/落指针，run_dream 不入 errors。
+    """
+    log_dir = isolated_data_dir / "logs"
+    log_dir.mkdir(parents=True)
+    yesterday = datetime.now() - timedelta(days=1)
+    old_log = log_dir / f"dream-{yesterday:%Y%m%d}.jsonl"
+    old_log.write_text("", encoding="utf-8")
+    old_ts = time.time() - 86400
+    os.utime(old_log, (old_ts, old_ts))
+    # 正常对照对（dim-4，M 对）
+    a = store.store("正常旧", embedding=_E[0])
+    b = store.store("正常新", embedding=_E[0])
+    _touch(store, a, 100)
+    _touch(store, b, 200)
+    # 异维复活行：dim-8 向量（换模型遗留），被取代且白天再确认
+    wide = np.zeros(8, dtype=np.float32)
+    wide[0] = 1.0
+    y = store.store("现行版", embedding=_E[0])
+    x = store.store("异维旧版", embedding=wide)
+    _set_pointer(store, x, y)
+    _touch(store, y, 100)
+    _touch(store, x, time.time() - 60)
+
+    report = run_dream(store, _rcfg(), None, _FakeEmbedder(True), apply=True)
+
+    sup = report["phases"]["supersede"]
+    assert "error" not in sup, sup  # 相位存活（局部降级，不整批报废）
+    assert sup["applied"] >= 1  # 正常对照对照常落指针
+    assert _row(store, a)["superseded_by"] == b
+    assert report["errors"] == []
+
+
 def test_notify_mechanical_filters(store, isolated_data_dir):
     log_dir = isolated_data_dir / "logs"
     log_dir.mkdir(parents=True)

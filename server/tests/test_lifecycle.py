@@ -284,7 +284,8 @@ def test_cli_purge_dry_run(tmp_path):
                    (time.time() - 200 * 86400, uid))
     s.conn.commit()
     s.close()
-    env = {**os.environ, "MEMORY_DB_PATH": str(db), "MEMORY_MODEL_PATH": ""}
+    env = {**os.environ, "MEMORY_DB_PATH": str(db), "MEMORY_MODEL_PATH": "",
+           "PYTHONPATH": str(Path("src").resolve())}  # CLI 子进程跑 src 现行码（防陈旧 site-packages/系统 python）
     proc = subprocess.run(
         [sys.executable, "-m", "semantic_memory.server", "purge", "--dry-run"],
         capture_output=True, text=True, env=env, timeout=120,
