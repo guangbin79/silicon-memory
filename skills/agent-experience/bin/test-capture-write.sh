@@ -148,11 +148,13 @@ rc=$?
 report unreadable-draft-rejected $?
 
 # 9c. 缺 summary 回填 title（archived 豁免 lint §2；列 5＝body H1，对齐 regenerateIndex；R1-ocr）
-sed -e 's/^status: draft$/status: archived/' -e '/^summary: /d' "$FIX/draft-noid.md" > "$FIX/draft-nosum.md"
+#     project 改 selftest-nosum：预检闸（ag-4b1d5d）后草稿与 store 既有记录须非近重——
+#     本用例主题是回填语义，不是重复捕获（v2.1 原夹具是 A 的逐字复件会被闸正确拦下）
+sed -e 's/^status: draft$/status: archived/' -e '/^summary: /d' -e 's/^project: selftest$/project: selftest-nosum/' "$FIX/draft-noid.md" > "$FIX/draft-nosum.md"
 out=$("$NODE" "$AE" --store "$STORE" capture --from "$FIX/draft-nosum.md")
 rc=$?
 sid=$(printf '%s\n' "$out" | head -1)
-[ "$rc" -eq 0 ] && grep -qF "$sid | 2026-10-22 | decision | selftest | capture selftest fixture | selftest,capture" "$STORE/INDEX.md"
+[ "$rc" -eq 0 ] && grep -qF "$sid | 2026-10-22 | decision | selftest-nosum | capture selftest fixture | selftest,capture" "$STORE/INDEX.md"
 report missing-summary-backfills-title $?
 
 # 10. 写入后 lint 零 findings（lint.sh 升格：store 首参）

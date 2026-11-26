@@ -140,15 +140,86 @@ function gitCommitStore(store, id) {
   }
 }
 
+// ---- capture 预检闸（dream ag-4b1d5d）：写盘前同 project+type 候选经收窄谓词
+//      （tags 交集≥1 或 summary/根因关键词重叠）命中、且未在草稿 related:/supersedes:
+//      链申报、未 --force-new → stderr 列候选＋处置提示，rc2，store 零接触 ----
+function gateKeywords(s) {
+  // ASCII 词（≥2 字符）＋ CJK 连串二元组（近似词）——机械关键词面，零停用词表
+  const out = new Set();
+  for (const w of String(s ?? '').toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/)) {
+    if (!w) continue;
+    if (/^[a-z0-9]+$/.test(w)) { if (w.length >= 2) out.add(w); continue; }
+    for (let i = 0; i + 2 <= w.length; i++) out.add(w.slice(i, i + 2));
+  }
+  return out;
+}
+
+// 根因行：body 的 ## Root Cause／## 根因 段内容（至下一 ## 标题；无段 → 空）
+function rootCauseOf(text) {
+  const lines = text.split('\n');
+  const open = lines.indexOf('---');
+  const close = lines.indexOf('---', open + 1);
+  const body = lines.slice(close + 1);
+  const start = body.findIndex((l) => /^##\s*(root cause|根因)\s*$/i.test(l));
+  if (start === -1) return '';
+  const seg = [];
+  for (const l of body.slice(start + 1)) {
+    if (/^##\s/.test(l)) break;
+    seg.push(l);
+  }
+  return seg.join('\n');
+}
+
+const fmIdList = (v) => String(v ?? '').split(/[,;\s]+/).filter(Boolean);
+const fmTagSet = (v) => new Set(String(v ?? '').split(/[,;\s]+/).filter(Boolean));
+
+function captureGate(store, fm, text, title) {
+  const project = fm.get('project') ?? '';
+  const type = fm.get('type') ?? '';
+  const draftTags = fmTagSet(fm.get('tags'));
+  const draftKeys = gateKeywords(`${fm.get('summary') ?? title ?? ''}\n${rootCauseOf(text)}`);
+  // 已处置豁免：草稿 related:/supersedes: 链申报过的命中 id → 放行
+  const declared = new Set([...fmIdList(fm.get('related')), ...fmIdList(fm.get('supersedes'))]);
+  const hits = [];
+  for (const file of listExperiences(store)) {
+    const t = readOk(file);
+    if (t === null) continue;
+    const { fm: cfm, title: ctitle } = parseFile(t);
+    if ((cfm.get('project') ?? '') !== project || (cfm.get('type') ?? '') !== type) continue;
+    const id = cfm.get('id') ?? path.basename(file, '.md');
+    if (declared.has(id)) continue;
+    const cTags = fmTagSet(cfm.get('tags'));
+    let narrowed = false;
+    for (const tg of draftTags) if (cTags.has(tg)) { narrowed = true; break; }
+    if (!narrowed) {
+      const cKeys = gateKeywords(`${cfm.get('summary') ?? ctitle ?? ''}\n${rootCauseOf(t)}`);
+      for (const k of draftKeys) if (cKeys.has(k)) { narrowed = true; break; }
+    }
+    if (narrowed) hits.push({ id, summary: cfm.get('summary') ?? ctitle ?? '' });
+  }
+  if (!hits.length) return null;
+  return [
+    `capture: 预检闸命中 ${hits.length} 条同 project+type 近重候选（收窄谓词：tags 交集或 summary/根因关键词重叠；store 零接触）：`,
+    ...hits.map((h) => `  - ${h.id}  ${h.summary}`),
+    '处置：同事件→更新旧记录勿新建；有增量→草稿 frontmatter related: 链接命中 id；确认独立→加 --force-new。',
+  ].join('\n') + '\n';
+}
+
 // ---- capture --from：草稿落盘（gt-24a8）。id 缺省铸+回填（扫描止于闭合围栏）；ID_RE 前置校验防路径逃逸；
 //      重复 id／空 related（lint §5 实例 20261022-162609-0544）／INDEX 列破坏值（created_at・回填 title 含 |）／控制字节拒绝；
 //      validate 经临时目录 <id>.md 跑以满足 id=stem 契约，失败清临时、store 零接触；
 //      store 写阶段锁文件串行化（并发 capture 防 INDEX 读-改-写丢行，陈旧锁 10s 抢占），任一步失败回滚记录文件——重试安全 ----
-function cmdCapture(store, draftPath) {
+//      预检闸（dream ag-4b1d5d）：同 project+type 近重候选收窄命中且未申报 → rc2 零接触（先于 id 铸造） ----
+function cmdCapture(store, draftPath, forceNew = false) {
   const text = readOk(draftPath);
   if (text === null) return { rc: 2, out: `capture: 草稿不可读: ${draftPath}\n` + usage() };
   const { fm, hasFm, title } = parseFile(text);
   if (!hasFm) return { rc: 1, out: 'capture: 草稿缺 frontmatter（--- 围栏），拒绝\n' };
+  // 预检闸先于 id 铸造/INDEX/落盘（store 零接触；--force-new 显式越过）
+  if (!forceNew) {
+    const gate = captureGate(store, fm, text, title);
+    if (gate) return { rc: 2, out: '', err: gate };
+  }
   let id = fm.get('id');
   const minted = id === undefined || id.trim() === '';
   if (minted) id = mintId();
@@ -1370,8 +1441,14 @@ function main(argv) {
     case 'id': return cmdId();
     case 'capture': {
       if (rest.length === 0) return cmdId();
-      if (rest[0] === '--from' && rest[1] && !rest[1].startsWith('--')) return cmdCapture(store, rest[1]);
-      return { rc: 2, out: 'capture: 用法 capture（无参铸 ID）| capture --from <draft.md>\n' + usage() };
+      const allowed = new Set(['--from', '--force-new']);
+      const bad = rest.filter((a) => a?.startsWith('--') && !allowed.has(a));
+      if (bad.length) return { rc: 2, out: `capture: 未知旗标: ${bad[0]}\n` + usage() };
+      const forceNew = rest.includes('--force-new');
+      const i = rest.indexOf('--from');
+      const draft = i !== -1 ? rest[i + 1] : undefined;
+      if (i !== -1 && draft && !draft.startsWith('--')) return cmdCapture(store, draft, forceNew);
+      return { rc: 2, out: 'capture: 用法 capture（无参铸 ID）| capture --from <draft.md> [--force-new]\n' + usage() };
     }
     case 'dedup': {
       if (rest.some((a) => a?.startsWith('--') && a !== '--scope=verifier')) return { rc: 2, out: 'dedup: 仅支持 --scope=verifier\n' + usage() };   // [ocr-5] 未知 --token 拒绝 rc2（不再误作关键词）
@@ -1426,4 +1503,5 @@ function main(argv) {
 
 const r = main(process.argv.slice(2));
 if (r.out) process.stdout.write(r.out);
+if (r.err) process.stderr.write(r.err);
 process.exitCode = r.rc;
