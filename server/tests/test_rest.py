@@ -313,10 +313,10 @@ def test_global_zero_byte_identical(client):
     )
     assert client.post("/recall", json={
         "query": "两路召回", "limit": 4, "project": "two-path",
-        "global_limit": 0}).json() == {"hits": old}
+        "global_limit": 0}).json() == {"hits": old, "folded": 0}
     assert client.post("/recall", json={
         "query": "两路召回", "limit": 4, "project": "two-path",
-        "global_limit": 0}).json() == {"hits": old}
+        "global_limit": 0}).json() == {"hits": old, "folded": 0}
 
 
 def test_recall_empty_query(client):
@@ -619,11 +619,14 @@ def test_recall_conflict_same_topic_cross_project_unflagged(client):
 
 
 def test_recall_conflict_global_decisions_not_scanned(client):
-    """C 分域：project 为空（全局桶）的 decision 对不进聚簇扫描。"""
+    """C 分域：project 为空（全局桶）的 decision 对不进聚簇扫描。
+
+    向量取 conflict 带（cos∈[0.90,0.95)）——避开 dream 折叠带（≥fold_sim
+    会被读取面折叠成一条），两条都返回且不带 conflict。"""
     server.store.store("全局决策一：构建输出目录约定 Gd1", kind="decision",
                        embedding=[1.0, 0.05])
     server.store.store("全局决策二：构建输出目录改约定 Gd2", kind="decision",
-                       embedding=[0.95, 0.1])
+                       embedding=[0.90, 0.4359])
     r = client.post("/recall", json={"query": "构建输出目录", "limit": 5})
     hits = r.json()["hits"]
     assert len(hits) == 2
@@ -634,11 +637,14 @@ def test_recall_conflict_global_decisions_not_scanned(client):
 
 def test_recall_flags_conflicting_decisions(client):
     """同 project 两条 decision 向量相似 ≥ conflict_min_sim（默认 0.90）→ hits 带 conflict 标记
-    （机器只做候选发现，裁决交给当场有上下文的 agent）。"""
+    （机器只做候选发现，裁决交给当场有上下文的 agent）。
+
+    向量取 conflict 带（cos∈[0.90,0.95)）——避开 dream 折叠带（≥fold_sim
+    会被读取面折叠成一条），两条都返回且都带标记。"""
     server.store.store("决策甲：构建入口统一用 make CconfA", kind="decision",
                        project="conf-proj", embedding=[1.0, 0.1])
     server.store.store("决策乙：构建入口改用 just CconfB", kind="decision",
-                       project="conf-proj", embedding=[0.9, 0.2])
+                       project="conf-proj", embedding=[0.90, 0.4359])
     r = client.post("/recall", json={
         "query": "构建入口", "limit": 5, "project": "conf-proj"})
     # 只看本项目命中（跨项目附加条目是既有行为）

@@ -23,6 +23,7 @@ from semantic_memory.dream import (
     day_state,
     dream_log_dir,
     dream_state_path,
+    fold_near_hits,
     route,
     run_dream,
     spend,
@@ -550,5 +551,87 @@ def test_flush_band_below_pair_sim_untouched(store):
         "SELECT superseded_by FROM memories WHERE uid=?", (old,)).fetchone()
     assert new_row["uid"] is not None
     assert old_row["superseded_by"] is None  # <pair_sim 带邻居不动（dream 存量面/TTL 兜）
+
+
+# ---------- Task 7: /recall 近重折叠（读取面止血，零存储写） ----------
+
+
+def test_fold_near_hits_same_domain_keeps_newest(store):
+    uid_old = store.store("旧说法", project="p1", embedding=_E[0])
+    uid_new = store.store("新说法", project="p1", embedding=_E[0])
+    hits = [
+        {"uid": uid_old, "project": "p1", "updated_at": 100.0, "created_at": 50.0},
+        {"uid": uid_new, "project": "p1", "updated_at": 200.0, "created_at": 150.0},
+    ]
+    out, folded = fold_near_hits(store, hits, 0.95)
+    assert folded == 1
+    assert [h["uid"] for h in out] == [uid_new]  # 同域近重仅新者返回
+
+
+def test_fold_near_hits_tie_prefers_created_then_uid(store):
+    a = store.store("平A", project="p1", embedding=_E[0])
+    b = store.store("平B", project="p1", embedding=_E[0])
+    hits = [
+        {"uid": a, "project": "p1", "updated_at": 100.0, "created_at": 50.0},
+        {"uid": b, "project": "p1", "updated_at": 100.0, "created_at": 60.0},
+    ]
+    out, folded = fold_near_hits(store, hits, 0.95)
+    assert folded == 1 and out[0]["uid"] == b  # 平局比 created_at
+
+
+def test_fold_near_hits_below_threshold_both_survive(store):
+    v_half = np.array([0.5, 0.8660254, 0.0, 0.0], dtype=np.float32)  # cos=0.5 < 0.95
+    a = store.store("半相似A", project="p1", embedding=_E[0])
+    b = store.store("半相似B", project="p1", embedding=v_half)
+    hits = [
+        {"uid": a, "project": "p1", "updated_at": 100.0, "created_at": 50.0},
+        {"uid": b, "project": "p1", "updated_at": 200.0, "created_at": 150.0},
+    ]
+    out, folded = fold_near_hits(store, hits, 0.95)
+    assert folded == 0 and len(out) == 2  # 阈下双双存活（折叠不误伤）
+
+
+def test_fold_near_hits_cross_domain_no_fold(store):
+    a = store.store("域A条目", project="pa", embedding=_E[0])
+    b = store.store("域B条目", project="pb", embedding=_E[0])
+    hits = [
+        {"uid": a, "project": "pa", "updated_at": 100.0, "created_at": 50.0},
+        {"uid": b, "project": "pb", "updated_at": 200.0, "created_at": 150.0},
+    ]
+    out, folded = fold_near_hits(store, hits, 0.95)
+    assert folded == 0 and len(out) == 2  # 跨域不折
+
+
+def test_fold_near_hits_global_domain_folds(store):
+    # 同为全局域（project None==None）也折叠
+    a = store.store("全局旧", embedding=_E[0])
+    b = store.store("全局新", embedding=_E[0])
+    hits = [
+        {"uid": a, "project": None, "updated_at": 100.0, "created_at": 50.0},
+        {"uid": b, "project": None, "updated_at": 200.0, "created_at": 150.0},
+    ]
+    out, folded = fold_near_hits(store, hits, 0.95)
+    assert folded == 1 and out[0]["uid"] == b
+
+
+def test_fold_near_hits_no_vector_survives(store):
+    plain = store.store("无向量条目", project="p1")
+    vecd = store.store("有向量条目", project="p1", embedding=_E[0])
+    hits = [
+        {"uid": plain, "project": "p1", "updated_at": 100.0, "created_at": 50.0},
+        {"uid": vecd, "project": "p1", "updated_at": 200.0, "created_at": 150.0},
+    ]
+    out, folded = fold_near_hits(store, hits, 0.95)
+    assert folded == 0 and len(out) == 2  # 无向量条目原样保留
+
+
+def test_rest_recall_response_folded_additive(monkeypatch):
+    from semantic_memory import server as server_mod
+    monkeypatch.setattr(server_mod, "_recall_hits", lambda **kw: ([], 3))
+    monkeypatch.setattr(server_mod, "cfg", SimpleNamespace(recall_limit_default=5,
+                                                           recall_min_rerank=0),
+                        raising=False)  # 不触发核心单例（保持 test_rest 的 env 独占）
+    out = server_mod.rest_recall({"query": "任意查询", "limit": 5})
+    assert out == {"hits": [], "folded": 3}
 
 

@@ -224,6 +224,60 @@ def collect_pairs(store, cfg, last_run_ts: float | None) -> dict:
     return {"pairs": pairs, "truncated": truncated}
 
 
+# ---------------- 读取面 C：/recall 注入前近重折叠（零存储写） ----------------
+
+def fold_near_hits(store, hits: list[dict], fold_sim: float) -> tuple[list[dict], int]:
+    """同域（project 相等，None==None）cos≥fold_sim 簇折叠为排序键最大的一条。
+
+    排序键 max(updated_at)（平局比 created_at 再比 uid）；无向量条目原样
+    保留；返回 (按原顺序的存活列表, 折叠掉的数量)——直写新重述 ≤1 天共存
+    时遮显示面（止血片，不改库）。
+    """
+    if np is None or not hits:
+        return hits, 0
+    vecs = store.vectors_of([h["uid"] for h in hits])
+    groups: dict = {}
+    for idx, h in enumerate(hits):
+        groups.setdefault(h.get("project"), []).append(idx)
+    drop: set[int] = set()
+    for idxs in groups.values():
+        have = [i for i in idxs if vecs.get(hits[i]["uid"]) is not None]
+        if len(have) < 2:
+            continue
+        mat = np.stack([vecs[hits[i]["uid"]] for i in have])
+        normed = mat / np.maximum(np.linalg.norm(mat, axis=1), 1e-12)[:, None]
+        sims = normed @ normed.T
+        n = len(have)
+        parent = list(range(n))  # 并查集：≥fold_sim 的对同簇
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for a in range(n):
+            for b in range(a + 1, n):
+                if float(sims[a, b]) >= fold_sim:
+                    parent[find(a)] = find(b)
+        clusters: dict[int, list[int]] = {}
+        for i in range(n):
+            clusters.setdefault(find(i), []).append(i)
+        for members in clusters.values():
+            if len(members) < 2:
+                continue
+
+            def _key(i: int) -> tuple:
+                h = hits[have[i]]
+                return (h.get("updated_at") or 0.0, h.get("created_at") or 0.0, h["uid"])
+
+            keep = max(members, key=_key)
+            drop.update(have[i] for i in members if i != keep)
+    if not drop:
+        return hits, 0
+    return [h for i, h in enumerate(hits) if i not in drop], len(drop)
+
+
 # ---------------- 编排（相位序 supersede→distill→purge→noise；写提交后才进下一相位） ----------------
 
 _STEP_NAMES = {"supersede": "归并", "distill": "蒸馏", "purge": "清账", "noise": "清扫"}

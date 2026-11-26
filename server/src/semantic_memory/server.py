@@ -40,7 +40,7 @@ from .config import (RERANK_GGUF_NAME, Config, auto_distill_model_name, auto_rer
 from .consistency import run_sweep
 from .db import MemoryStore
 from .distiller import Distiller
-from .dream import run_dream
+from .dream import fold_near_hits, run_dream
 from .embedder import Embedder, _card_free_mib, _card_total_mib
 from .graph import cross_project_extras, graph_edges
 from .hybrid import hybrid_recall
@@ -206,12 +206,14 @@ def __getattr__(name: str):
 
 # ---------------- 检索核心（REST 端点共用） ----------------
 
-def _recall_hits(query: str, limit: int, project: str | None, global_limit: int) -> list[dict]:
-    """混合召回；global_limit>0 且指定 project 时两路合并（REST 共用）。
+def _recall_hits(query: str, limit: int, project: str | None, global_limit: int) -> tuple[list[dict], int]:
+    """混合召回＋注入前近重折叠；global_limit>0 且指定 project 时两路合并（REST 共用）。
 
     project 路（scope='project'）在前，global 路（scope='global'，配额
     global_limit）补足其后；去重后按 limit 截断——全局条目不挤占项目配额。
     global_limit=0 或未指定 project 时单路调用，与既有行为逐字节一致。
+    尾部近重折叠（dream 读取面 C）：同域 cos≥cfg.fold_sim 只留最新一条，
+    零存储写；返回 (hits, folded)。
     """
     if global_limit > 0 and project:
         q = embedder.embed_query(query)  # 双路共用同一次查询嵌入（免重复推理）
@@ -246,7 +248,8 @@ def _recall_hits(query: str, limit: int, project: str | None, global_limit: int)
             cross_sim=cfg.cross_sim, limit=cfg.cross_limit)
             if e["uid"] not in seen]
     _mark_decision_conflicts(merged, min_sim=cfg.conflict_min_sim)
-    return merged
+    merged, folded = fold_near_hits(store, merged, cfg.fold_sim)
+    return merged, folded
 
 
 def _mark_decision_conflicts(hits: list[dict], min_sim: float = 0.90) -> None:
@@ -446,7 +449,7 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
     if limit < 0 or global_limit < 0:
         return 400, {"error": "limit/global_limit must be non-negative"}
     t0 = time.perf_counter()
-    hits = _recall_hits(
+    hits, folded = _recall_hits(
         query=q,
         limit=limit,
         project=resolve_project(raw_project),
@@ -485,7 +488,7 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
                 hits = [h for h in hits if h["uid"] not in low_uids]
     # 门后计时：含噪声过滤与补打分（可耗 rerank 预算）——p95/告警须覆盖真实请求时延
     _record_recall((time.perf_counter() - t0) * 1000.0)
-    out = {"hits": hits}
+    out = {"hits": hits, "folded": folded}
     if filter_stats:
         out["filter_stats"] = filter_stats
     if gate_failed:
