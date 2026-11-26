@@ -18,3 +18,7 @@
 ## [2026-11-26] ingest | dream-retention
 - 沉淀 dream（做梦）任务群知识（任务 ag-4b1d5d＋ag-581248 已合并 @1b41b0c @bc4e05c）：裁定链四条——取消 LLM 裁决（正确＝反复记忆的结果、复活重裁＝正确性机制本身）、LWW 键＝updated_at＋实例指针无人工豁免（人工仅立法与平局）、外层根命令砍除（引擎面 server 子命令／机面 maintain --apply 唯一入口／人面 notify 邮件）、经验层强度键＝reuses.md 只读聚合不回写 frontmatter；Bug×2——capture 预检闸「关键词重叠」谓词退化（停用词＋CJK 二元组＋共享键≥2 修复）、verify 门裸 pytest 下 CLI 子进程须 PYTHONPATH=src
 - Types: Decision/Bug Experience
+
+## [2026-11-26] ingest | dream-retention
+- 沉淀 dream-retention/graded-retention-deferred：Nature 分裂吸引子论文评估＝架构同构验证（数据/控制面分离↔分裂吸引子、去抑制写入↔capture 三信号、行为边界锁存↔压缩前冲刷、复馈存活↔touch 再确认），唯一候选「按确认次数分级 TTL 视界」证据门控暂不做（判据＝dream 报告复活量），零代码变更
+- Types: Decision
