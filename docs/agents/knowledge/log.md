@@ -15,3 +15,6 @@
 ## [2026-11-18] ingest | injection-quality
 - 沉淀 injection-quality/conflict-threshold（冲突标注阈值默认 cos 0.90：969 条 live decision 下 0.60 有 7542 对、0.90 仅 41 对，域外 fail-fast，⚠ 仅候选信号人工裁决）与 injection-quality/noise-credential-hardening（验证门/交付链回执覆盖收敛、`Credential <task-id>` 行首族＋无冒号 token 变体硬拒、分隔符匹配限行内防跨行误杀；noise-sweep 收口后活动库 3841 条、凭据谓词/粗筛均 0、noise 测试 83 passed） @1ca5c52 @d87b83d @dc0f412 @be1ec09 @789e5f3 @4265f07
 - Types: Decision
+## [2026-11-26] ingest | dream-retention
+- 沉淀 dream（做梦）任务群知识（任务 ag-4b1d5d＋ag-581248 已合并 @1b41b0c @bc4e05c）：裁定链四条——取消 LLM 裁决（正确＝反复记忆的结果、复活重裁＝正确性机制本身）、LWW 键＝updated_at＋实例指针无人工豁免（人工仅立法与平局）、外层根命令砍除（引擎面 server 子命令／机面 maintain --apply 唯一入口／人面 notify 邮件）、经验层强度键＝reuses.md 只读聚合不回写 frontmatter；Bug×2——capture 预检闸「关键词重叠」谓词退化（停用词＋CJK 二元组＋共享键≥2 修复）、verify 门裸 pytest 下 CLI 子进程须 PYTHONPATH=src
+- Types: Decision/Bug Experience

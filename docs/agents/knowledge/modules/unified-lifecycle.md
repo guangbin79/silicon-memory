@@ -7,6 +7,7 @@
 - 旧 `memory`/`knowledge` 子命令降为内部适配器/兼容面，保持可用但不新增能力
 - `/recall`、`/ingest`、遥测端点是内部数据面，不属于公开控制面
 - Key files: ./bin/lifecycle.mjs, ./skills/unified-memory/references/lifecycle.md
+- See also: [dream-retention](dream-retention.md)
 
 ## Decision
 
