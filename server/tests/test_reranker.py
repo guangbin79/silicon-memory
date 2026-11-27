@@ -83,6 +83,16 @@ def _clean_breaker():
     gpu_breaker.reset_for_test()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_cuda_dlopen(monkeypatch):
+    """测试密闭性：GPU 路径 _load 真会 dlopen CUDA 运行库（数百 MB mmap）；
+    冷页缓存/高负载下超构造器默认 500ms 预算窗 → _BudgetExceeded 假红
+    （2026-11-27 红绿翻转两轮实证）。生产预算 1500 专为冷首载设计，
+    生产面不改；单测 stub 掉保确定性。"""
+    import semantic_memory.reranker as mod
+    monkeypatch.setattr(mod, "_preload_cuda_libs", lambda: None)
+
+
 def test_prompt_template_official_shape(monkeypatch, gguf):
     """官方判别模板：system 句 / Instruct-Query-Document / 空 think 后缀 / 512 截断。"""
     mock = MockRerankModel(scores=[(-0.1, -3.0)])
