@@ -432,10 +432,18 @@ def api_maintenance_noise_sweep(body: dict) -> dict:
     return noise_sweep(store, dry_run=bool(body.get("dry_run")))
 
 
+def _strip_lone_surrogates(text: str) -> str:
+    """剥未配对 UTF-16 代理（JS/JSON 层漏入的坏字符）：任何 UTF-8 边界
+    （llama.cpp 编码、sqlite 绑定）都炸 UnicodeEncodeError——2026-11-26
+    一次坏 query 误触全局熔断停注入 22h。信任边界净化，宁剥勿炸。"""
+    return text.encode("utf-8", "ignore").decode("utf-8")
+
+
 def rest_recall(body: dict) -> dict | tuple[int, dict]:
     q = body.get("query")
     if not isinstance(q, str):
         return 400, {"error": "query must be a string"}
+    q = _strip_lone_surrogates(q)
     if not q.strip():
         return {"hits": []}  # 既有契约：空查询 → 空 hits（见 test_recall_empty_query）
     raw_project = body.get("project")
@@ -546,6 +554,7 @@ def rest_ingest(body: dict) -> dict | tuple[int, dict]:
     content = body.get("content")
     if not isinstance(content, str):
         return 400, {"error": "content must be a string"}
+    content = _strip_lone_surrogates(content)
     # 噪声闸：纯任务状态回执（auto-chat 逐字捕获/显式 store 都在放行）——
     # 入口即挡，与 unresolvable_project 丢弃形态对齐
     if is_task_event_noise(content):

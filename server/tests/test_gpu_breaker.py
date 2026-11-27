@@ -94,6 +94,25 @@ def test_embedder_cpu_error_still_raises_no_trip():
     assert gpu_breaker.quarantined_count() == 0
 
 
+def test_embedder_unicode_error_fails_open_without_trip():
+    # 2026-11-26 事故回归：未配对 UTF-16 代理在编码边界炸 UnicodeEncodeError——
+    # 确定性数据错误非 CUDA 硬件损坏，不 trip 不重建，放弃该次向量
+    # （一次坏 query 误触全局熔断停注入 22h）。
+    e = _embedder_stub()
+
+    rebuilds: list[Exception] = []
+    e._rebuild_on_cpu = lambda exc: rebuilds.append(exc)
+
+    def bad_encode(texts):
+        "x\ud85a".encode("utf-8")  # 真实编码边界，必炸 UnicodeEncodeError
+
+    e._embed_all = bad_encode
+    assert e.embed_batch(["x\ud85a 坏文本"]) is None
+    assert gpu_breaker.tripped() is False
+    assert gpu_breaker.quarantined_count() == 0
+    assert rebuilds == []
+
+
 def test_reranker_tripped_returns_none():
     gpu_breaker.trip("pre-tripped")
     r = Reranker.__new__(Reranker)

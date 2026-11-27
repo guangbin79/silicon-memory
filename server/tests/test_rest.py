@@ -21,7 +21,7 @@ from conftest import raw_request
 os.environ["MEMORY_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="rest-"), "rest.db")
 os.environ.pop("MEMORY_TOKEN", None)
 
-from semantic_memory import server
+from semantic_memory import gpu_breaker, server
 
 
 def test_health(client):
@@ -322,6 +322,21 @@ def test_global_zero_byte_identical(client):
 def test_recall_empty_query(client):
     """旧 MCP 契约迁移：空查询返回空集（不炸、不凑数）。"""
     assert client.post("/recall", json={"query": ""}).json()["hits"] == []
+
+
+def test_recall_and_ingest_strips_lone_surrogates(client):
+    """2026-11-26 事故回归：query/content 含未配对 UTF-16 代理（JS/JSON 层
+    漏入的坏字符）曾打穿 BM25 兜底成 500——REST 边界剥除，两端点 200。"""
+    gpu_breaker.reset_for_test()
+    try:
+        r = client.post("/recall", json={"query": "熔断回归 \ud85a 查询", "limit": 1})
+        assert r.status_code == 200 and "hits" in r.json()
+        r2 = client.post("/ingest", json={
+            "content": "孤代理回归 \ud85a 内容", "source": "chat", "project": "surro"})
+        assert r2.status_code == 200 and r2.json()["queued"] is True
+        assert gpu_breaker.tripped() is False
+    finally:
+        gpu_breaker.reset_for_test()
 
 
 def test_store_rejects_invalid_kind(client):

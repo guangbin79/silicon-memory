@@ -23,3 +23,11 @@
 - **Symptom:** `/tmp/rl-e2e-s*`（review-loop e2e 的 tmux 会话）向真实服务捕获 22 条垃圾条目，评测高峰恰是熔断误触发时段
 - **Root cause:** `review-loop-e2e.sh` spawn `opencode --standalone` 未关 `MEMORY_PLUGIN_AUTOSTART`，评测会话插件连到共享服务（8765）
 - **Fix:** 派生会话 env 加 `MEMORY_PLUGIN_AUTOSTART=0`（dotfiles 仓，经 agora 委派）
+
+
+### 非硬件异常误触全局熔断——embed 路径（2026-11-26）
+- **Id:** gpu-breaker/non-hardware-trip-embed
+- **Source:** dispatcher 会话 ses_de432e075（分析全文见经验层 20261127-151405-ab88）
+- **Symptom:** `/health` gpu_degraded 报 `embed CUDA error: UnicodeEncodeError \ud85a surrogates not allowed`，停注入 22h、蒸馏停摆 typed:0 原文直存、265 行未向量化
+- **Root cause:** ① `/recall` query 含未配对 UTF-16 代理（JS/JSON 层容忍）② embed_batch cuda 路径任何异常一律 trip ③ 熔断无自愈唯一恢复=重启
+- **Fix:** REST 边界剥孤代理（`_strip_lone_surrogates`）＋ embed 路径 UnicodeEncodeError 不 trip（沿 gpu-breaker/parse-vs-hardware 判例）
