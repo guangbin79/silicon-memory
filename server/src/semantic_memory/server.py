@@ -449,6 +449,8 @@ def rest_recall(body: dict) -> dict | tuple[int, dict]:
     raw_project = body.get("project")
     if raw_project is not None and not isinstance(raw_project, str):
         return 400, {"error": "project must be a string"}
+    if isinstance(raw_project, str):
+        raw_project = _strip_lone_surrogates(raw_project)
     try:
         limit = int(body.get("limit", cfg.recall_limit_default))
         global_limit = int(body.get("global_limit", 0))
@@ -539,9 +541,12 @@ def rest_ingest(body: dict) -> dict | tuple[int, dict]:
         source = "chat"  # 显式 null 也回落 chat（dict.get 带默认不接 null）
     if not isinstance(source, str):
         return 400, {"error": "source must be a string"}  # 不可哈希源会在 frozenset 成员判定上 TypeError→500
+    source = _strip_lone_surrogates(source)
     raw_project = body.get("project")
     if raw_project is not None and not isinstance(raw_project, str):
         return 400, {"error": "project must be a string"}
+    if isinstance(raw_project, str):
+        raw_project = _strip_lone_surrogates(raw_project)
     project = resolve_project(raw_project)
     # W 写侧门（2026-10-26 /tmp fixture 噪声实证；终闸 R2 补 tool 源）：绝对路径
     # 归一失败 ⇒ 非 git/无 origin 工作区——自动捕获（chat/compaction/tool，皆插件
@@ -560,18 +565,23 @@ def rest_ingest(body: dict) -> dict | tuple[int, dict]:
     if is_task_event_noise(content):
         return {"queued": False, "dropped": "task_event_noise"}
     if source in QUEUED_SOURCES:
-        pending = enqueue_raw(store, content, source, project,
-                              body.get("session_id"))
+        session_id = body.get("session_id")
+        if isinstance(session_id, str):
+            session_id = _strip_lone_surrogates(session_id)
+        pending = enqueue_raw(store, content, source, project, session_id)
         if cfg.distill_batch > 0 and pending >= cfg.distill_batch:
             _spawn_flush()  # 触发器一路：队列积压达阈值（flush 在 daemon 线程）
         return {"queued": True, "pending": pending}
+    tags = body.get("tags")
+    if isinstance(tags, list):
+        tags = [t if not isinstance(t, str) else _strip_lone_surrogates(t) for t in tags]
     uid, deduped = ingest_with_dedup(
         store, embedder,
         content=content,
         kind=body.get("kind", "fact"),
         source=source,
         project=project,
-        tags=body.get("tags"),
+        tags=tags,
         dedup_sim=cfg.dedup_sim,
     )
     # 终闸 B2：W 门可能把显式条目降级全局——回显实际落库 project，调用方可观测

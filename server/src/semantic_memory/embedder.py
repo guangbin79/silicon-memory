@@ -249,8 +249,6 @@ class Embedder:
                 with gpu_breaker.INFER_LOCK:
                     mat = self._embed_all(texts)
             except Exception as exc:
-                if self.device != "cuda":
-                    raise
                 if isinstance(exc, UnicodeEncodeError):
                     # 确定性数据错误（坏文本在任何设备都炸，CPU 重试必同样失败）
                     # ≠ 硬件损坏：不 trip 不重建，放弃该次向量（2026-11-26 实证
@@ -258,6 +256,8 @@ class Embedder:
                     # 「非硬件不熔断」判例补 embed 路径）。
                     log.warning("embed 输入含不可编码字符（%s）——放弃向量（不熔断）", exc)
                     return None
+                if self.device != "cuda":
+                    raise
                 # CUDA 熔断：损坏模型入墓场（禁入 GC——free 即 abort）＋
                 # CPU 重建重试一次；重试再败 → 保持熔断、放弃向量（BM25 降级）
                 gpu_breaker.quarantine(self._model)

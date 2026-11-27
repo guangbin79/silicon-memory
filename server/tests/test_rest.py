@@ -334,6 +334,16 @@ def test_recall_and_ingest_strips_lone_surrogates(client):
         r2 = client.post("/ingest", json={
             "content": "孤代理回归 \ud85a 内容", "source": "chat", "project": "surro"})
         assert r2.status_code == 200 and r2.json()["queued"] is True
+        r3 = client.post("/ingest", json={
+            "content": "兄弟字段回归 B1 入队", "source": "chat",
+            "project": "pj\ud85a", "session_id": "s\ud85a"})
+        assert r3.status_code == 200 and r3.json()["queued"] is True
+        r4 = client.post("/ingest", json={
+            "content": "兄弟字段回归 B1 直存", "source": "rememb\ud85ar",
+            "project": "pj\ud85b", "tags": ["t\ud85a"]})
+        assert r4.status_code == 200 and r4.json()["uid"]
+        r5 = client.post("/recall", json={"query": "任意", "project": "pr\ud85a", "limit": 1})
+        assert r5.status_code == 200 and "hits" in r5.json()
         assert gpu_breaker.tripped() is False
     finally:
         gpu_breaker.reset_for_test()

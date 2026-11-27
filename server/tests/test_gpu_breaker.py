@@ -113,6 +113,19 @@ def test_embedder_unicode_error_fails_open_without_trip():
     assert rebuilds == []
 
 
+def test_embedder_cpu_unicode_error_fails_open_without_trip():
+    # 终闸 B2：数据错误分类与设备无关——CPU 同样不 raise 不 trip（RuntimeError 仍照旧 raise）。
+    e = _embedder_stub(device="cpu")
+
+    def bad_encode(texts):
+        "x\ud85a".encode("utf-8")  # 真实编码边界，必炸 UnicodeEncodeError
+
+    e._embed_all = bad_encode
+    assert e.embed_batch(["x\ud85a 坏文本"]) is None
+    assert gpu_breaker.tripped() is False
+    assert gpu_breaker.quarantined_count() == 0
+
+
 def test_reranker_tripped_returns_none():
     gpu_breaker.trip("pre-tripped")
     r = Reranker.__new__(Reranker)
