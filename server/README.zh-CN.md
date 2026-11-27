@@ -195,7 +195,11 @@ wal_checkpoint，逐文件 sha256 校验，旧服务还在跑则拒迁，旧目�
 | `MEMORY_TTL_ARTIFACT_DAYS` | `90` | `artifact` 类 TTL 天数；`0` = 不过期 |
 | `MEMORY_TTL_INJECTION_DAYS` | `90` | 注入遥测流水 TTL 天数；`0` = 不过期 |
 | `MEMORY_TTL_STALE_DAYS` | `180` | 使用度留存：`fact`/`artifact` 超此天数未被召回，下次 purge 时软删（NULL 按 created_at；`preference`/`decision` 豁免）；`0` = 关闭 |
+| `MEMORY_DREAM_PAIR_SIM` | `0.92` | dream 近重配对：同 project 同 type、余弦 ≥ 此值成对——`updated_at` 新者取代旧者（LWW；同刻平局只进报告不执行）；蒸馏 flush 的自动取代带同用此阈值 |
+| `MEMORY_DREAM_MAX_PER_NIGHT` | `200` | dream 遗忘限速：每自然日至多 N 个取代对（跨 invocation 记账，report-only 同计费） |
+| `MEMORY_FOLD_SIM` | `0.95` | `/recall` 读取面折叠：同 project 命中余弦 ≥ 此值折叠为最新一条（零存储写） |
 | `MEMORY_MAINTENANCE_ON_START` | `1` | 服务启动时运行维护例程 |
+| `MEMORY_NOISE_SWEEP_AT` | `03:30` | 夜扫线程的每日本地时刻（`HH:MM`）；非法值拒启。`off`（env 或 config.toml `noise_sweep_at="off"`）关闭内置线程——外部调度（如 02:00 `silicon-memory maintain --apply`）接管清扫时设置；standalone 缺省仍 03:30 |
 | `MEMORY_DEDUP_SIM` | `0.98` | 向量近似去重阈值（同 project 内） |
 | `MEMORY_ALLOW_BM25_ONLY` | `0` | 第 0 档逃生门：`=1` 时即使 `config.toml` 在场也允许纯 BM25 启动 |
 
@@ -461,9 +465,14 @@ golden 集（按 `(project, query)` 去重、取最近注入——供给侧标�
 - **`semantic-memory noise-sweep [--dry-run]`**：手动夜扫一次，stdout 输出
   JSON 报告——与夜扫线程同一例程（确定性谓词命中→软删，弱信号疑似→只进
   报告）。与 `purge`/`distill` 同属维护 CLI：不经 HTTP 批量闸，无需
-  `MEMORY_TOKEN`。这也是 `silicon-memory maintain` 热层适配器的调用入口；
-  外部统一调度接管清扫时，服务侧配 `MEMORY_NOISE_SWEEP_AT=off`，保证任一
-  时刻只有一个清扫拥有者（standalone 缺省仍内置 03:30）。
+  `MEMORY_TOKEN`。外部统一调度接管清扫时，服务侧配
+  `MEMORY_NOISE_SWEEP_AT=off`，保证任一时刻只有一个清扫拥有者
+  （standalone 缺省仍内置 03:30）。
+- **`semantic-memory dream`**：四相位留存巩固（近重 LWW 取代／蒸馏冲刷／
+  TTL／噪声）——全机械零 LLM 裁决；误遗忘的条目再次被 touch 后经复活重裁
+  自愈。缺省 **report-only**（任何会话可安全跑）；`--apply` 仅归外部 02:00
+  调度所有者——`silicon-memory maintain`（热层车厢）只是对本命令的薄委托，
+  普通会话禁日常 apply。
 
 ## 向量通道（与 ctx-semantic 同源）
 

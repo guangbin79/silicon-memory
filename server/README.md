@@ -226,6 +226,9 @@ Service:
 | `MEMORY_TTL_ARTIFACT_DAYS` | `90` | TTL for `artifact` kind; `0` = never expire |
 | `MEMORY_TTL_INJECTION_DAYS` | `90` | TTL for injection telemetry; `0` = never expire |
 | `MEMORY_TTL_STALE_DAYS` | `180` | Usage-based retention: `fact`/`artifact` un-recalled this many days are soft-deleted at the next purge (NULL → created_at; `preference`/`decision` exempt); `0` = off |
+| `MEMORY_DREAM_PAIR_SIM` | `0.92` | Dream near-dup pairing: same-project same-type entries with cosine ≥ this pair up — the `updated_at`-newer supersedes the older (LWW; exact ties are reported, never executed). Also the auto-supersede band at distill flush |
+| `MEMORY_DREAM_MAX_PER_NIGHT` | `200` | Dream forgetting rate limit: at most N supersessions per natural day, accounted across invocations (report-only runs bill the same quota) |
+| `MEMORY_FOLD_SIM` | `0.95` | `/recall` read-side folding: same-project hits with cosine ≥ this collapse into the newest one (zero storage writes) |
 | `MEMORY_MAINTENANCE_ON_START` | `1` | Run the maintenance routine at service startup |
 | `MEMORY_NOISE_SWEEP_AT` | `03:30` | Daily local time (`HH:MM`) for the resident noise-sweep thread; invalid values fail service startup. `off` (env or config.toml `noise_sweep_at="off"`) disables the built-in thread — set it when an external scheduler (e.g. `silicon-memory maintain --apply` at 02:00) owns the sweep; standalone default stays 03:30 |
 | `MEMORY_DEDUP_SIM` | `0.98` | Cosine threshold for vector near-duplicate ingest dedup |
@@ -482,10 +485,16 @@ single-entry forget lives in the web UI / `DELETE /api/memories/{uid}`.
   stdout — the same routine the nightly thread runs (deterministic predicate
   hits soft-forgotten, weak-signal suspects reported only). Like
   `purge`/`distill` it is a maintenance CLI: it never goes through the HTTP
-  bulk gate, so no `MEMORY_TOKEN` is needed. This is the entry the
-  `silicon-memory maintain` hot-layer adapter calls; when an external scheduler
+  bulk gate, so no `MEMORY_TOKEN` is needed. When an external scheduler
   owns the sweep, set `MEMORY_NOISE_SWEEP_AT=off` on the service so there is
   exactly one sweep owner.
+- **`semantic-memory dream`**: four-phase retention consolidation (near-dup LWW
+  supersede / distill flush / TTL / noise) — fully mechanical, no LLM
+  adjudication; wrongly-forgotten entries self-heal via revival re-adjudication
+  once they are touched again. Default is **report-only** (safe to run in any
+  session); `--apply` is owned exclusively by the external 02:00 scheduler —
+  `silicon-memory maintain` (hot layer) is a thin delegation to this command,
+  so ordinary sessions never apply.
 
 ## Vector channel (same vectors as ctx-semantic)
 
